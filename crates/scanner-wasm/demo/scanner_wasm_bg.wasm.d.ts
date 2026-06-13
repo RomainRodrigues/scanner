@@ -1,0 +1,38 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const __wbg_get_scanresult_confidence: (a: number) => number;
+export const __wbg_get_scanresult_format: (a: number) => [number, number];
+export const __wbg_get_scanresult_orientation: (a: number) => number;
+export const __wbg_get_scanresult_points: (a: number) => [number, number];
+export const __wbg_get_scanresult_text: (a: number) => [number, number];
+export const __wbg_get_scanresult_timestamp_ms: (a: number) => number;
+export const __wbg_scanresult_free: (a: number, b: number) => void;
+export const __wbg_set_scanresult_confidence: (a: number, b: number) => void;
+export const __wbg_set_scanresult_format: (a: number, b: number, c: number) => void;
+export const __wbg_set_scanresult_orientation: (a: number, b: number) => void;
+export const __wbg_set_scanresult_points: (a: number, b: number, c: number) => void;
+export const __wbg_set_scanresult_text: (a: number, b: number, c: number) => void;
+export const __wbg_set_scanresult_timestamp_ms: (a: number, b: number) => void;
+export const __wbg_wasmscanner_free: (a: number, b: number) => void;
+export const __wbg_wasmscansession_free: (a: number, b: number) => void;
+export const wasmscanner_new: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+export const wasmscanner_scanLuma: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+export const wasmscanner_scanRgb: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+export const wasmscanner_scanRgba: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+export const wasmscansession_avgScanTimeMs: (a: number) => number;
+export const wasmscansession_clearCooldown: (a: number, b: number, c: number) => void;
+export const wasmscansession_codesDetected: (a: number) => number;
+export const wasmscansession_framesScanned: (a: number) => number;
+export const wasmscansession_framesSubmitted: (a: number) => number;
+export const wasmscansession_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
+export const wasmscansession_processFrameLuma: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+export const wasmscansession_processFrameRgba: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+export const wasmscansession_reset: (a: number) => void;
+export const wasmscansession_skipInterval: (a: number) => number;
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+export const __externref_drop_slice: (a: number, b: number) => void;
+export const __wbindgen_start: () => void;

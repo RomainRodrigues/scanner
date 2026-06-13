@@ -252,31 +252,40 @@ pub struct JsSessionStats {
 #[napi]
 pub struct Scanner {
     inner: CoreScanner,
+    config: ScannerConfig,
+}
+
+// Private helpers — must NOT be inside #[napi] impl
+impl Scanner {
+    fn clone_config(&self) -> ScannerConfig {
+        self.config.clone()
+    }
 }
 
 #[napi]
 impl Scanner {
-    /// Create a new scanner with default configuration.
+    /// Create a new scanner with optional configuration.
     #[napi(constructor)]
     pub fn new(config: Option<JsScanConfig>) -> Self {
         let core_config = js_config_to_core(config);
-        Self { inner: CoreScanner::new(core_config) }
+        Self {
+            inner: CoreScanner::new(core_config.clone()),
+            config: core_config,
+        }
     }
 
     /// Scan an image file from disk (async, non-blocking).
     ///
     /// @param path - Absolute or relative path to the image file.
-    /// @returns Array of scan results (may be empty if nothing detected).
+    /// @returns Array of scan results (empty array if nothing detected).
     #[napi]
     pub async fn scan_file(&self, path: String) -> Result<Vec<JsScanResult>> {
-        let scanner = CoreScanner::new(self.inner_config());
-        let path_clone = path.clone();
-
+        let cfg = self.clone_config();
         let results = tokio::task::spawn_blocking(move || {
-            scanner.scan_file(&path_clone)
+            CoreScanner::new(cfg).scan_file(&path)
         })
         .await
-        .map_err(|e| napi::Error::from_reason(format!("Task error: {e}")))?;
+        .map_err(|e| napi::Error::from_reason(format!("Task error: {e}")))? ;
 
         match results {
             Ok(r) => Ok(r.into_iter().map(JsScanResult::from).collect()),
@@ -291,7 +300,6 @@ impl Scanner {
     /// @param width - Image width in pixels.
     /// @param height - Image height in pixels.
     /// @param format - Pixel format (default: Rgba).
-    /// @returns Array of scan results.
     #[napi]
     pub fn scan_buffer(
         &self,
@@ -314,7 +322,6 @@ impl Scanner {
     /// @param width - Image width in pixels.
     /// @param height - Image height in pixels.
     /// @param format - Pixel format (default: Rgba).
-    /// @returns Array of scan results.
     #[napi]
     pub async fn scan_buffer_async(
         &self,
@@ -323,15 +330,15 @@ impl Scanner {
         height: u32,
         format: Option<PixelFormat>,
     ) -> Result<Vec<JsScanResult>> {
-        let scanner = CoreScanner::new(self.inner_config());
+        let cfg = self.clone_config();
         let pixel_fmt = format.map(CorePixelFormat::from).unwrap_or(CorePixelFormat::Rgba);
         let data_vec: Vec<u8> = data.to_vec();
 
         let results = tokio::task::spawn_blocking(move || {
-            scanner.scan_frame(&data_vec, width, height, pixel_fmt)
+            CoreScanner::new(cfg).scan_frame(&data_vec, width, height, pixel_fmt)
         })
         .await
-        .map_err(|e| napi::Error::from_reason(format!("Task error: {e}")))?;
+        .map_err(|e| napi::Error::from_reason(format!("Task error: {e}")))? ;
 
         match results {
             Ok(r) => Ok(r.into_iter().map(JsScanResult::from).collect()),
@@ -339,12 +346,8 @@ impl Scanner {
             Err(e) => Err(napi::Error::from_reason(format!("{e}"))),
         }
     }
-
-    fn inner_config(&self) -> ScannerConfig {
-        // Re-use the same config; Scanner is stateless w.r.t. the core config
-        ScannerConfig::default()
-    }
 }
+
 
 // ── ScanSession class ─────────────────────────────────────────────────────────
 

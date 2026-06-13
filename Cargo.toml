@@ -5,6 +5,7 @@ members = [
     "crates/scanner-core",
     "crates/scanner-cli",
     "crates/scanner-napi",
+    "crates/scanner-wasm",
 ]
 
 [workspace.package]
