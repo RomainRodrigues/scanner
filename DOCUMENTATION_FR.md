@@ -149,16 +149,25 @@ wasm-pack build --target web --out-dir pkg --release
 ```
 Copiez simplement l'intégralité du contenu du dossier `crates/scanner-wasm/pkg` dans le dossier `public` ou `assets` de votre frontend. Assurez-vous que votre serveur web sert le fichier `.wasm` avec le bon Content-Type (`application/wasm`).
 
-**Option B : Publier sur NPM (Pour React, Vue, Vite, Webpack...)**
-Si vous souhaitez distribuer votre moteur WASM pour qu'il soit installable via `npm install` dans d'autres projets :
-```bash
-cd crates/scanner-wasm
-# 1. Génère un module compatible avec les bundlers modernes
-wasm-pack build --target bundler --out-dir pkg --release
-# 2. Publie le paquet sur le registre NPM
-wasm-pack publish
-```
-Une fois publié (ou linké localement avec `npm link`), vous pourrez l'importer de manière transparente dans n'importe quel projet JavaScript/TypeScript côté client pour avoir un décodage à la vitesse de la lumière directement dans le navigateur !
+**Option B : Publier sur NPM sous votre organisation (Pour React, Vue, Vite, Webpack...)**
+Si vous souhaitez distribuer votre moteur WASM pour qu'il soit installable via `npm install` (comme `@gueshbzh-perso/scanner-wasm`) dans d'autres projets :
+
+1. **Construire le paquet WASM avec votre scope (organisation) :**
+   ```bash
+   cd crates/scanner-wasm
+   wasm-pack build --scope gueshbzh-perso --target bundler --out-dir pkg --release
+   ```
+   *Note : Le flag `--scope gueshbzh-perso` indique à `wasm-pack` de nommer automatiquement le package `@gueshbzh-perso/scanner-wasm` dans le fichier `package.json` généré.*
+
+2. **Publier sur le registre NPM :**
+   Les packages avec un scope (commençant par `@`) sont publiés en privé par défaut par npm. Pour le rendre public gratuitement et gérer le double facteur (2FA/OTP), placez-vous dans le dossier de build `pkg` et publiez avec les options d'accès :
+   ```bash
+   cd pkg
+   npm publish --access public
+   # (Saisissez ensuite votre code OTP si demandé par npm)
+   ```
+
+Une fois publié (ou lié localement avec `npm link` depuis le dossier `pkg`), vous pourrez l'importer de manière transparente dans n'importe quel projet JavaScript/TypeScript côté client pour avoir un décodage ultra-rapide directement dans le navigateur !
 
 ---
 
