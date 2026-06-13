@@ -480,7 +480,12 @@
       // Create session with central 70% ROI
       const roi = 0.7;
       const m = (1 - roi) / 2;
-      session = new WasmScanSession(true, true, m, m, roi, roi, 2000);
+      session = new WasmScanSession({
+        preprocessing: true,
+        tryInvert: true,
+        roi: { x: m, y: m, width: roi, height: roi },
+        dedupCooldownMs: 2000
+      });
 
       document.getElementById('scan-line').classList.add('active');
       document.getElementById('btn-stop').disabled = false;

@@ -105,15 +105,17 @@ export class BrowserScanner {
 
     // Setup scan session
     const roiMargin = (1 - this.#opts.roi) / 2;
-    this.#session = new WasmScanSession(
-      this.#opts.preprocessing,   // preprocessing
-      true,                        // try_invert
-      roiMargin,                   // roi_x
-      roiMargin,                   // roi_y
-      this.#opts.roi,              // roi_w
-      this.#opts.roi,              // roi_h
-      this.#opts.cooldownMs,       // cooldown_ms
-    );
+    this.#session = new WasmScanSession({
+      preprocessing: this.#opts.preprocessing,
+      tryInvert: true,
+      roi: {
+        x: roiMargin,
+        y: roiMargin,
+        width: this.#opts.roi,
+        height: this.#opts.roi,
+      },
+      dedupCooldownMs: this.#opts.cooldownMs,
+    });
 
     // Setup video
     this.#video = videoElement ?? document.createElement('video');
@@ -253,14 +255,16 @@ export async function scanImage(source, opts = {}) {
   const roi = opts.roi ?? 1.0;
   const roiMargin = (1 - roi) / 2;
 
-  const scanner = new WasmScanner(
-    opts.preprocessing ?? true, // preprocessing
-    true,                        // try_invert
-    roi < 1.0 ? roiMargin : undefined,
-    roi < 1.0 ? roiMargin : undefined,
-    roi < 1.0 ? roi : undefined,
-    roi < 1.0 ? roi : undefined,
-  );
+  const scanner = new WasmScanner({
+    preprocessing: opts.preprocessing ?? true,
+    tryInvert: true,
+    roi: roi < 1.0 ? {
+      x: roiMargin,
+      y: roiMargin,
+      width: roi,
+      height: roi,
+    } : undefined,
+  });
 
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
