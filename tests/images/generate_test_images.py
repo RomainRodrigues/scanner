@@ -29,7 +29,7 @@ except ImportError:
 
 
 def make_qr(data: str, path: str, **kwargs):
-    qr = qrcode.QRCode(box_size=10, border=4)
+    qr = qrcode.QRCode(box_size=3, border=4)
     qr.add_data(data)
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")
@@ -48,7 +48,7 @@ def main():
     make_qr("https://github.com/romrd/scanner", os.path.join(qr_dir, "clean_hd.png"))
 
     # Blurry QR (simulate camera blur)
-    qr = qrcode.make("Hello, Scanner! This is a blurry QR code test.")
+    qr = qrcode.make("Hello, Scanner! This is a blurry QR code test.").convert("L")
     qr_blurry = qr.filter(ImageFilter.GaussianBlur(radius=2))
     qr_blurry.save(os.path.join(qr_dir, "blurry_camera.jpg"), quality=60)
     print(f"  Created: {os.path.join(qr_dir, 'blurry_camera.jpg')}")
@@ -70,8 +70,8 @@ def main():
     print(f"  Created: {os.path.join(qr_dir, 'inverted.png')}")
 
     # Multiple QR codes in one image
-    qr1 = qrcode.make("Code A")
-    qr2 = qrcode.make("Code B")
+    qr1 = qrcode.make("Code A").get_image()
+    qr2 = qrcode.make("Code B").get_image()
     combined = Image.new("RGB", (qr1.width + qr2.width + 20, max(qr1.height, qr2.height) + 20), "white")
     combined.paste(qr1, (10, 10))
     combined.paste(qr2, (qr1.width + 10, 10))
@@ -80,7 +80,7 @@ def main():
 
     # Small QR in large image
     big = Image.new("RGB", (1000, 1000), "white")
-    small_qr = qrcode.make("Tiny code").resize((120, 120))
+    small_qr = qrcode.make("Tiny code").get_image().resize((120, 120))
     big.paste(small_qr, (440, 440))
     big.save(os.path.join(qr_dir, "tiny_in_large.png"))
     print(f"  Created: {os.path.join(qr_dir, 'tiny_in_large.png')}")

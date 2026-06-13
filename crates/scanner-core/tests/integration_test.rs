@@ -3,24 +3,19 @@
 //! These tests use real barcode images from the `tests/images/` directory.
 //! Run with: `cargo test --workspace`
 
-use scanner_core::{BarcodeFormat, PixelFormat, ScanSession, Scanner, ScannerConfig};
+use scanner_core::{PixelFormat, ScanSession, Scanner, ScannerConfig};
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
-/// Load an image from the test fixtures directory as RGBA bytes.
-fn load_test_image_rgba(relative_path: &str) -> Option<(Vec<u8>, u32, u32)> {
-    let path = format!("../../tests/images/{relative_path}");
-    let img = image::open(&path).ok()?.to_rgba8();
-    let (w, h) = img.dimensions();
-    Some((img.into_raw(), w, h))
-}
-
 /// Load an image and scan it, returning the result text if found.
-fn scan_test_image(path: &str) -> Option<String> {
+fn scan_test_image(path: &str) -> Result<String, scanner_core::ScanError> {
     let scanner = Scanner::new(ScannerConfig::image_file());
-    scanner.scan_file(&format!("../../tests/images/{path}")).ok().and_then(|mut v| {
-        v.pop().map(|r| r.text)
-    })
+    let results = scanner.scan_file(&format!("../../tests/images/{path}"))?;
+    if let Some(res) = results.into_iter().next() {
+        Ok(res.text)
+    } else {
+        Err(scanner_core::ScanError::NotFound)
+    }
 }
 
 // ── Scanner API tests ─────────────────────────────────────────────────────────
@@ -75,41 +70,49 @@ fn test_scan_session_reset() {
 
 #[test]
 fn test_scan_qr_clean() {
-    if let Some(text) = scan_test_image("qr/clean_hd.png") {
-        assert!(!text.is_empty(), "Decoded QR text should not be empty");
-        println!("QR clean decoded: {text}");
-    } else {
-        println!("Skipping: test image not found");
+    match scan_test_image("qr/clean_hd.png") {
+        Ok(text) => {
+            assert!(!text.is_empty(), "Decoded QR text should not be empty");
+            println!("QR clean decoded: {text}");
+        }
+        Err(scanner_core::ScanError::ImageLoad { .. }) => println!("Skipping: test image not found"),
+        Err(e) => panic!("Test failed: {:?}", e),
     }
 }
 
 #[test]
 fn test_scan_qr_blurry() {
-    if let Some(text) = scan_test_image("qr/blurry_camera.jpg") {
-        assert!(!text.is_empty());
-        println!("QR blurry decoded: {text}");
-    } else {
-        println!("Skipping: test image not found");
+    match scan_test_image("qr/blurry_camera.jpg") {
+        Ok(text) => {
+            assert!(!text.is_empty());
+            println!("QR blurry decoded: {text}");
+        }
+        Err(scanner_core::ScanError::ImageLoad { .. }) => println!("Skipping: test image not found"),
+        Err(e) => panic!("Test failed: {:?}", e),
     }
 }
 
 #[test]
 fn test_scan_ean13() {
-    if let Some(text) = scan_test_image("barcode_1d/ean13_clean.png") {
-        assert_eq!(text.len(), 13, "EAN-13 should decode to 13 digits");
-        println!("EAN-13 decoded: {text}");
-    } else {
-        println!("Skipping: test image not found");
+    match scan_test_image("barcode_1d/ean13_clean.png") {
+        Ok(text) => {
+            assert_eq!(text.len(), 13, "EAN-13 should decode to 13 digits");
+            println!("EAN-13 decoded: {text}");
+        }
+        Err(scanner_core::ScanError::ImageLoad { .. }) => println!("Skipping: test image not found"),
+        Err(e) => panic!("Test failed: {:?}", e),
     }
 }
 
 #[test]
 fn test_scan_code128() {
-    if let Some(text) = scan_test_image("barcode_1d/code128.png") {
-        assert!(!text.is_empty());
-        println!("Code 128 decoded: {text}");
-    } else {
-        println!("Skipping: test image not found");
+    match scan_test_image("barcode_1d/code128.png") {
+        Ok(text) => {
+            assert!(!text.is_empty());
+            println!("Code 128 decoded: {text}");
+        }
+        Err(scanner_core::ScanError::ImageLoad { .. }) => println!("Skipping: test image not found"),
+        Err(e) => panic!("Test failed: {:?}", e),
     }
 }
 

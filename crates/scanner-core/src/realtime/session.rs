@@ -29,7 +29,7 @@ use crate::realtime::throttle::AdaptiveThrottle;
 use crate::realtime::tracker::FrameTracker;
 use crate::result::ScanResult;
 use crate::scanner::Scanner;
-use std::time::Instant;
+use web_time::Instant;
 
 /// Performance statistics for a scan session.
 #[derive(Debug, Clone, Default)]

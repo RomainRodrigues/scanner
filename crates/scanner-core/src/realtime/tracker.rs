@@ -7,7 +7,7 @@
 
 use crate::result::ScanResult;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use web_time::{Duration, Instant};
 
 /// Tracks recently detected barcodes to prevent duplicate reports.
 pub struct FrameTracker {

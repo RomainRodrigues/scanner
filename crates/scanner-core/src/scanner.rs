@@ -10,7 +10,7 @@ use crate::preprocess::{self, roi::crop_roi};
 use crate::result::ScanResult;
 use image::DynamicImage;
 use log::debug;
-use std::time::Instant;
+use web_time::Instant;
 
 /// High-level scanner for one-shot image scanning.
 ///

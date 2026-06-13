@@ -195,10 +195,11 @@ export interface InitOutput {
     readonly wasmscansession_processFrameRgba: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly wasmscansession_reset: (a: number) => void;
     readonly wasmscansession_skipInterval: (a: number) => number;
-    readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
+    readonly __externref_table_alloc: () => number;
+    readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __externref_drop_slice: (a: number, b: number) => void;
     readonly __wbindgen_start: () => void;
 }

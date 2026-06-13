@@ -302,5 +302,6 @@ impl WasmScanSession {
 
 // ── Panic hook ────────────────────────────────────────────────────────────────
 
-fn console_error_panic_hook_init() {}
-
+fn console_error_panic_hook_init() {
+    console_error_panic_hook::set_once();
+}
