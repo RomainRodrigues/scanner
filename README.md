@@ -27,9 +27,10 @@ A robust, high-performance barcode and QR code scanning library written in pure 
 ```
 scanner/
 ├── crates/
-│   ├── scanner-core/     # Pure Rust engine (this crate)
-│   └── scanner-cli/      # Command-line tool
-└── scanner-wasm/         # WASM + browser JS SDK (Phase 4)
+│   ├── scanner-core/     # Pure Rust engine
+│   ├── scanner-cli/      # Command-line tool (with live webcam)
+│   ├── scanner-napi/     # Node.js native addon
+│   └── scanner-wasm/     # WebAssembly module + browser SDK
 ```
 
 ## Quick Start
@@ -66,20 +67,58 @@ if let Some(results) = session.process_frame(&rgba_bytes, width, height, PixelFo
 # Build
 cargo build --release -p scanner-cli
 
-# Scan a file
+# Real-time webcam scanning
+./target/release/scanner live
+./target/release/scanner live --list      # List cameras
+./target/release/scanner live --camera 1  # Select camera
+
+# Scan a file or directory
 ./target/release/scanner scan image.png
-
-# Scan a directory recursively
 ./target/release/scanner scan ./images/ --recursive
-
-# JSON output
-./target/release/scanner scan image.png --output json
-
-# Specific formats only
-./target/release/scanner scan image.jpg --format qr,ean13
 
 # Benchmark
 ./target/release/scanner bench ./tests/images/ --iterations 20
+```
+
+### Node.js (napi-rs)
+
+```bash
+cd crates/scanner-napi
+npm install
+npm run build
+```
+
+```javascript
+const { Scanner, ScanSession, PixelFormat } = require('@scanner/native');
+
+// Static scan
+const scanner = new Scanner();
+const results = await scanner.scanFile('./qrcode.png');
+
+// Real-time
+const session = new ScanSession({ roi: { x: 0.2, y: 0.2, width: 0.6, height: 0.6 } });
+const frameResults = session.processFrame(rgbaBuffer, width, height, PixelFormat.Rgba);
+```
+
+### Browser WASM
+
+```bash
+cd crates/scanner-wasm
+wasm-pack build --target web --out-dir pkg --release
+```
+
+```javascript
+import { BrowserScanner, scanImage } from './scanner-web.js';
+
+// Camera stream with auto requestAnimationFrame loop
+const scanner = new BrowserScanner({
+  onDetect: (result) => console.log('Scanned:', result.text),
+  roi: 0.7
+});
+await scanner.start(document.querySelector('video'));
+
+// Static image
+const results = await scanImage(document.querySelector('img'));
 ```
 
 ## Performance
@@ -128,8 +167,8 @@ Place test images in `tests/images/` following the structure documented in the [
 
 - [x] Phase 1 — Core library (`scanner-core`)
 - [x] Phase 2 — CLI (`scanner-cli`)
-- [ ] Phase 3 — Node.js native addon (`scanner-napi`)
-- [ ] Phase 4 — WASM + Browser SDK (`scanner-wasm`)
+- [x] Phase 3 — Node.js native addon (`scanner-napi`)
+- [x] Phase 4 — WASM + Browser SDK (`scanner-wasm`)
 
 ## License
 
