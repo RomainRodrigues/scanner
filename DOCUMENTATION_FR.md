@@ -55,26 +55,23 @@ Cela va créer des dossiers remplis de QR codes (propres, flous, sombres, tourn�
 
 ### 2. Tester le CLI & la Webcam (Phases 1 & 2)
 
-Compile l'outil en ligne de commande :
-```bash
-cargo build --release -p scanner-cli
-```
+L'outil en ligne de commande (CLI) se lance de préférence via `cargo run`. Nous utilisons le flag `--release` pour avoir les performances maximales du moteur lors des tests locaux.
 
 **Scanner une image ou un dossier :**
 ```bash
-./target/release/scanner scan ./tests/images/qr/clean_hd.png
-./target/release/scanner scan ./tests/images/ --recursive
+cargo run --release -p scanner-cli -- scan ./tests/images/qr/clean_hd.png
+cargo run --release -p scanner-cli -- scan ./tests/images/ --recursive
 ```
 
 **Lancer le Benchmark de performance :**
 ```bash
-./target/release/scanner bench ./tests/images/
+cargo run --release -p scanner-cli -- bench ./tests/images/
 ```
 
 **🎥 Tester la WEBCAM en live !**
 *(C'est là que la magie opère)*
 ```bash
-./target/release/scanner live
+cargo run --release -p scanner-cli -- live
 ```
 Prends ton téléphone portable, affiche un QR code ou un code-barres sur l'écran, et montre-le à ta webcam d'ordinateur. Le résultat apparaîtra instantanément dans ton terminal avec les millisecondes que ça a pris.
 Tu peux quitter avec `Ctrl+C`.
