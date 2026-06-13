@@ -1,0 +1,39 @@
+[workspace]
+resolver = "2"
+
+members = [
+    "crates/scanner-core",
+    "crates/scanner-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["scanner"]
+license = "MIT"
+repository = "https://github.com/romrd/scanner"
+
+[workspace.dependencies]
+# Core scanning engine
+rxing = { version = "0.9", default-features = false, features = ["image", "encoding_rs", "decoders"] }
+
+# Image processing
+image = { version = "0.25", default-features = false, features = [
+    "png",
+    "jpeg",
+    "gif",
+    "webp",
+] }
+imageproc = { version = "0.25", default-features = false }
+
+# Error handling & utilities
+thiserror = "2"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+
+# Async
+tokio = { version = "1", features = ["full"] }
+
+# Dev dependencies
+criterion = { version = "0.5", features = ["html_reports"] }
+env_logger = "0.11"

@@ -1,0 +1,43 @@
+# Rust build artifacts
+/target/
+**/target/
+
+# Cargo lock (keep for binaries, optional for libs)
+# Cargo.lock is committed for reproducible builds in this workspace
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Benchmark results (HTML reports)
+/criterion/
+
+# Generated test artifacts
+tests/images/qr/*.png
+tests/images/qr/*.jpg
+tests/images/barcode_1d/*.png
+tests/images/barcode_1d/*.jpg
+tests/images/barcode_2d/*.png
+tests/images/edge_cases/*.png
+tests/images/edge_cases/*.jpg
+
+# Keep the generator script
+!tests/images/generate_test_images.py
+
+# WASM build output (Phase 4)
+/scanner-wasm/pkg/
+
+# Node modules (Phase 3)
+node_modules/
+*.node
+
+# Environment
+.env
+.env.local
+
+# Profiling
+*.profdata
+*.prof

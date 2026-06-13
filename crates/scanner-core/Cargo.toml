@@ -1,0 +1,23 @@
+[package]
+name = "scanner-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "High-performance QR code and barcode scanning engine in pure Rust"
+
+[dependencies]
+rxing = { workspace = true }
+image = { workspace = true }
+imageproc = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+env_logger = { workspace = true }
+
+[[bench]]
+name = "scan_benchmark"
+harness = false
