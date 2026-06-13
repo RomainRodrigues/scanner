@@ -4,6 +4,7 @@ resolver = "2"
 members = [
     "crates/scanner-core",
     "crates/scanner-cli",
+    "crates/scanner-napi",
 ]
 
 [workspace.package]
