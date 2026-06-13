@@ -10,13 +10,13 @@
 //! await init(); // loads the WASM module
 //!
 //! // Static image scan (from canvas ImageData)
-//! const scanner = new WasmScanner();
+//! const scanner = new WasmScanner({ formats: ["qr_code", "code_128"] });
 //! const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 //! const results = scanner.scanRgba(imageData.data, canvas.width, canvas.height);
 //! if (results.length > 0) console.log(results[0].text);
 //!
 //! // Real-time camera scanning (from requestAnimationFrame)
-//! const session = new WasmScanSession({ roi_x: 0.2, roi_y: 0.2, roi_w: 0.6, roi_h: 0.6 });
+//! const session = new WasmScanSession({ roi: { x: 0.2, y: 0.2, width: 0.6, height: 0.6 } });
 //! function tick() {
 //!   ctx.drawImage(video, 0, 0);
 //!   const { data, width, height } = ctx.getImageData(0, 0, vw, vh);
@@ -68,34 +68,69 @@ impl From<scanner_core::ScanResult> for ScanResult {
 
 // ── Config helper ─────────────────────────────────────────────────────────────
 
-fn build_config(
-    preprocessing: Option<bool>,
-    try_invert: Option<bool>,
-    roi_x: Option<f32>,
-    roi_y: Option<f32>,
-    roi_w: Option<f32>,
-    roi_h: Option<f32>,
-    cooldown_ms: Option<u64>,
-) -> ScannerConfig {
-    let roi = match (roi_x, roi_y, roi_w, roi_h) {
-        (Some(x), Some(y), Some(w), Some(h)) => Some(CoreRoi {
-            x,
-            y,
-            width: w,
-            height: h,
-        }),
-        _ => None,
-    };
+use serde::Deserialize;
 
-    ScannerConfig {
-        preprocessing: preprocessing.unwrap_or(true),
-        try_rotations: false, // rotations too slow in WASM for real-time
-        try_invert: try_invert.unwrap_or(true),
-        max_results: 1,
-        roi,
-        dedup_cooldown_ms: cooldown_ms.unwrap_or(2000),
-        ..ScannerConfig::default()
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct JsWasmScanConfig {
+    pub formats: Option<Vec<scanner_core::result::BarcodeFormat>>,
+    pub preprocessing: Option<bool>,
+    pub try_rotations: Option<bool>,
+    pub try_invert: Option<bool>,
+    pub max_results: Option<u32>,
+    pub roi: Option<JsWasmRoi>,
+    pub dedup_cooldown_ms: Option<f64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsWasmRoi {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+fn js_config_to_core(js_val: JsValue, is_session: bool) -> ScannerConfig {
+    let mut config = ScannerConfig::default();
+    if is_session {
+        config.try_rotations = false;
     }
+
+    if js_val.is_null() || js_val.is_undefined() {
+        return config;
+    }
+
+    if let Ok(js_cfg) = serde_wasm_bindgen::from_value::<JsWasmScanConfig>(js_val) {
+        if let Some(formats) = js_cfg.formats {
+            config.formats = Some(formats);
+        }
+        if let Some(pre) = js_cfg.preprocessing {
+            config.preprocessing = pre;
+        }
+        if let Some(rot) = js_cfg.try_rotations {
+            config.try_rotations = rot;
+        }
+        if let Some(inv) = js_cfg.try_invert {
+            config.try_invert = inv;
+        }
+        if let Some(max) = js_cfg.max_results {
+            config.max_results = max as usize;
+        }
+        if let Some(roi) = js_cfg.roi {
+            config.roi = Some(CoreRoi {
+                x: roi.x,
+                y: roi.y,
+                width: roi.width,
+                height: roi.height,
+            });
+        }
+        if let Some(cd) = js_cfg.dedup_cooldown_ms {
+            config.dedup_cooldown_ms = cd as u64;
+        }
+    }
+    
+    config
 }
 
 // ── WasmScanner ───────────────────────────────────────────────────────────────
@@ -112,24 +147,17 @@ pub struct WasmScanner {
 impl WasmScanner {
     /// Create a new scanner.
     ///
-    /// @param {boolean} [preprocessing=true] - Enable adaptive preprocessing.
-    /// @param {boolean} [try_invert=true] - Try inverted image (white-on-black).
-    /// @param {number} [roi_x] - ROI left (0.0–1.0).
-    /// @param {number} [roi_y] - ROI top (0.0–1.0).
-    /// @param {number} [roi_w] - ROI width (0.0–1.0).
-    /// @param {number} [roi_h] - ROI height (0.0–1.0).
+    /// @param {Object} [config] - Configuration object.
+    /// @param {string[]} [config.formats] - Formats to scan (e.g. ["qr_code", "code_128"]).
+    /// @param {boolean} [config.preprocessing=true] - Enable adaptive preprocessing.
+    /// @param {boolean} [config.tryRotations=false] - Try rotated images.
+    /// @param {boolean} [config.tryInvert=true] - Try inverted image (white-on-black).
+    /// @param {Object} [config.roi] - Region of Interest {x, y, width, height} (0.0–1.0).
     #[wasm_bindgen(constructor)]
-    pub fn new(
-        preprocessing: Option<bool>,
-        try_invert: Option<bool>,
-        roi_x: Option<f32>,
-        roi_y: Option<f32>,
-        roi_w: Option<f32>,
-        roi_h: Option<f32>,
-    ) -> WasmScanner {
-        let config = build_config(preprocessing, try_invert, roi_x, roi_y, roi_w, roi_h, None);
+    pub fn new(config: JsValue) -> WasmScanner {
+        let core_config = js_config_to_core(config, false);
         WasmScanner {
-            inner: CoreScanner::new(config),
+            inner: CoreScanner::new(core_config),
         }
     }
 
@@ -206,35 +234,18 @@ pub struct WasmScanSession {
 impl WasmScanSession {
     /// Create a new scan session.
     ///
-    /// @param {boolean} [preprocessing=true] - Enable adaptive preprocessing.
-    /// @param {boolean} [try_invert=true] - Try inverted image.
-    /// @param {number} [roi_x] - ROI left edge (0.0–1.0).
-    /// @param {number} [roi_y] - ROI top edge (0.0–1.0).
-    /// @param {number} [roi_w] - ROI width (0.0–1.0).
-    /// @param {number} [roi_h] - ROI height (0.0–1.0).
-    /// @param {number} [cooldown_ms=2000] - Dedup cooldown in milliseconds.
+    /// @param {Object} [config] - Configuration object.
+    /// @param {string[]} [config.formats] - Formats to scan.
+    /// @param {boolean} [config.preprocessing=true] - Enable adaptive preprocessing.
+    /// @param {boolean} [config.tryInvert=true] - Try inverted image.
+    /// @param {Object} [config.roi] - Region of Interest {x, y, width, height} (0.0–1.0).
+    /// @param {number} [config.dedupCooldownMs=2000] - Dedup cooldown in milliseconds.
     #[wasm_bindgen(constructor)]
-    pub fn new(
-        preprocessing: Option<bool>,
-        try_invert: Option<bool>,
-        roi_x: Option<f32>,
-        roi_y: Option<f32>,
-        roi_w: Option<f32>,
-        roi_h: Option<f32>,
-        cooldown_ms: Option<u32>,
-    ) -> WasmScanSession {
+    pub fn new(config: JsValue) -> WasmScanSession {
         console_error_panic_hook_init();
-        let config = build_config(
-            preprocessing,
-            try_invert,
-            roi_x,
-            roi_y,
-            roi_w,
-            roi_h,
-            cooldown_ms.map(|v| v as u64),
-        );
+        let core_config = js_config_to_core(config, true);
         WasmScanSession {
-            inner: CoreScanSession::new(config),
+            inner: CoreScanSession::new(core_config),
         }
     }
 
