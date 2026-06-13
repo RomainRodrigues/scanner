@@ -140,12 +140,25 @@ npm run build
 Vous pouvez ensuite soit publier ce module sur votre registre npm privé, soit inclure le fichier `.node` généré dans votre dossier de build final (Docker ou CI/CD). Assurez-vous que la plateforme de build correspond à la plateforme de déploiement (ex: Linux x64).
 
 ### 3. Déployer pour le Web (Application Frontend)
-Pour déployer l'application web (Vercel, Netlify, Github Pages, AWS S3) :
+
+**Option A : Fichiers statiques purs (Vanilla JS, sans bundler)**
+Idéal pour un déploiement direct (Vercel, Netlify, Github Pages) :
 ```bash
 cd crates/scanner-wasm
 wasm-pack build --target web --out-dir pkg --release
 ```
-Copiez simplement l'intégralité du contenu du dossier `crates/scanner-wasm/pkg` dans le dossier public/assets de votre frontend (React, Vue, Svelte...). Assurez-vous que votre serveur web sert le fichier `.wasm` avec le bon Content-Type (`application/wasm`).
+Copiez simplement l'intégralité du contenu du dossier `crates/scanner-wasm/pkg` dans le dossier `public` ou `assets` de votre frontend. Assurez-vous que votre serveur web sert le fichier `.wasm` avec le bon Content-Type (`application/wasm`).
+
+**Option B : Publier sur NPM (Pour React, Vue, Vite, Webpack...)**
+Si vous souhaitez distribuer votre moteur WASM pour qu'il soit installable via `npm install` dans d'autres projets :
+```bash
+cd crates/scanner-wasm
+# 1. Génère un module compatible avec les bundlers modernes
+wasm-pack build --target bundler --out-dir pkg --release
+# 2. Publie le paquet sur le registre NPM
+wasm-pack publish
+```
+Une fois publié (ou linké localement avec `npm link`), vous pourrez l'importer de manière transparente dans n'importe quel projet JavaScript/TypeScript côté client pour avoir un décodage à la vitesse de la lumière directement dans le navigateur !
 
 ---
 
