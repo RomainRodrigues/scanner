@@ -75,7 +75,9 @@ fn test_scan_qr_clean() {
             assert!(!text.is_empty(), "Decoded QR text should not be empty");
             println!("QR clean decoded: {text}");
         }
-        Err(scanner_core::ScanError::ImageLoad { .. }) => println!("Skipping: test image not found"),
+        Err(scanner_core::ScanError::ImageLoad { .. }) => {
+            println!("Skipping: test image not found")
+        }
         Err(e) => panic!("Test failed: {:?}", e),
     }
 }
@@ -87,7 +89,9 @@ fn test_scan_qr_blurry() {
             assert!(!text.is_empty());
             println!("QR blurry decoded: {text}");
         }
-        Err(scanner_core::ScanError::ImageLoad { .. }) => println!("Skipping: test image not found"),
+        Err(scanner_core::ScanError::ImageLoad { .. }) => {
+            println!("Skipping: test image not found")
+        }
         Err(e) => panic!("Test failed: {:?}", e),
     }
 }
@@ -99,7 +103,9 @@ fn test_scan_ean13() {
             assert_eq!(text.len(), 13, "EAN-13 should decode to 13 digits");
             println!("EAN-13 decoded: {text}");
         }
-        Err(scanner_core::ScanError::ImageLoad { .. }) => println!("Skipping: test image not found"),
+        Err(scanner_core::ScanError::ImageLoad { .. }) => {
+            println!("Skipping: test image not found")
+        }
         Err(e) => panic!("Test failed: {:?}", e),
     }
 }
@@ -111,7 +117,9 @@ fn test_scan_code128() {
             assert!(!text.is_empty());
             println!("Code 128 decoded: {text}");
         }
-        Err(scanner_core::ScanError::ImageLoad { .. }) => println!("Skipping: test image not found"),
+        Err(scanner_core::ScanError::ImageLoad { .. }) => {
+            println!("Skipping: test image not found")
+        }
         Err(e) => panic!("Test failed: {:?}", e),
     }
 }
@@ -148,7 +156,7 @@ fn test_format_detection() {
 fn test_rgb_frame_accepted() {
     let scanner = Scanner::with_defaults();
     let data = vec![200u8; 100 * 100 * 3]; // RGB
-    // Should not crash (may return NotFound)
+                                           // Should not crash (may return NotFound)
     let _ = scanner.scan_frame(&data, 100, 100, PixelFormat::Rgb);
 }
 

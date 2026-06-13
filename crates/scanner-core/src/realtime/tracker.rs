@@ -35,7 +35,8 @@ impl FrameTracker {
         let cooldown = self.cooldown;
 
         // Prune old entries first
-        self.seen.retain(|_, last_seen| now.duration_since(*last_seen) < cooldown * 2);
+        self.seen
+            .retain(|_, last_seen| now.duration_since(*last_seen) < cooldown * 2);
 
         let mut new_results = Vec::new();
         for result in results {
@@ -116,7 +117,11 @@ mod tests {
 
         tracker.filter_new(r1);
         let filtered = tracker.filter_new(r2);
-        assert_eq!(filtered.len(), 0, "Same code should be deduplicated in cooldown");
+        assert_eq!(
+            filtered.len(),
+            0,
+            "Same code should be deduplicated in cooldown"
+        );
     }
 
     #[test]

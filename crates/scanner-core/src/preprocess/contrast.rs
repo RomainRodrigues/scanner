@@ -28,8 +28,8 @@ pub fn clahe(img: &GrayImage, tile_size: u32, clip_limit: f32) -> GrayImage {
     let tile_h = tile_size.max(1);
 
     // Number of tiles in each direction (at least 1)
-    let nx = ((width + tile_w - 1) / tile_w).max(1);
-    let ny = ((height + tile_h - 1) / tile_h).max(1);
+    let nx = width.div_ceil(tile_w).max(1);
+    let ny = height.div_ceil(tile_h).max(1);
 
     // Compute a LUT for each tile
     let mut tile_luts: Vec<Vec<u8>> = Vec::with_capacity((nx * ny) as usize);

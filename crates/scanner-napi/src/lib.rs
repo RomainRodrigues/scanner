@@ -26,12 +26,12 @@
 
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use scanner_core::{
-    PixelFormat as CorePixelFormat, ScanSession as CoreScanSession,
-    ScannerConfig, Scanner as CoreScanner,
-};
 use scanner_core::config::Roi as CoreRoi;
 use scanner_core::result::BarcodeFormat as CoreBarcodeFormat;
+use scanner_core::{
+    PixelFormat as CorePixelFormat, ScanSession as CoreScanSession, Scanner as CoreScanner,
+    ScannerConfig,
+};
 
 // ── Type conversions ──────────────────────────────────────────────────────────
 
@@ -160,7 +160,14 @@ impl From<scanner_core::ScanResult> for JsScanResult {
             text: r.text,
             format: format!("{}", r.format),
             raw_bytes: r.raw_bytes.map(|b| Buffer::from(b.as_slice())),
-            points: r.points.iter().map(|p| JsPoint { x: p.x as f64, y: p.y as f64 }).collect(),
+            points: r
+                .points
+                .iter()
+                .map(|p| JsPoint {
+                    x: p.x as f64,
+                    y: p.y as f64,
+                })
+                .collect(),
             confidence: r.confidence as f64,
             orientation: r.orientation as f64,
             timestamp_ms: r.timestamp_ms as f64,
@@ -200,9 +207,9 @@ pub struct JsRoi {
 fn js_config_to_core(js: Option<JsScanConfig>) -> ScannerConfig {
     let js = js.unwrap_or_default();
 
-    let formats = js.formats.map(|fmts| {
-        fmts.into_iter().map(CoreBarcodeFormat::from).collect()
-    });
+    let formats = js
+        .formats
+        .map(|fmts| fmts.into_iter().map(CoreBarcodeFormat::from).collect());
 
     let roi = js.roi.map(|r| CoreRoi {
         x: r.x as f32,
@@ -281,11 +288,9 @@ impl Scanner {
     #[napi]
     pub async fn scan_file(&self, path: String) -> Result<Vec<JsScanResult>> {
         let cfg = self.clone_config();
-        let results = tokio::task::spawn_blocking(move || {
-            CoreScanner::new(cfg).scan_file(&path)
-        })
-        .await
-        .map_err(|e| napi::Error::from_reason(format!("Task error: {e}")))? ;
+        let results = tokio::task::spawn_blocking(move || CoreScanner::new(cfg).scan_file(&path))
+            .await
+            .map_err(|e| napi::Error::from_reason(format!("Task error: {e}")))?;
 
         match results {
             Ok(r) => Ok(r.into_iter().map(JsScanResult::from).collect()),
@@ -308,7 +313,9 @@ impl Scanner {
         height: u32,
         format: Option<PixelFormat>,
     ) -> Result<Vec<JsScanResult>> {
-        let pixel_fmt = format.map(CorePixelFormat::from).unwrap_or(CorePixelFormat::Rgba);
+        let pixel_fmt = format
+            .map(CorePixelFormat::from)
+            .unwrap_or(CorePixelFormat::Rgba);
         match self.inner.scan_frame(&data, width, height, pixel_fmt) {
             Ok(r) => Ok(r.into_iter().map(JsScanResult::from).collect()),
             Err(scanner_core::ScanError::NotFound) => Ok(vec![]),
@@ -331,14 +338,16 @@ impl Scanner {
         format: Option<PixelFormat>,
     ) -> Result<Vec<JsScanResult>> {
         let cfg = self.clone_config();
-        let pixel_fmt = format.map(CorePixelFormat::from).unwrap_or(CorePixelFormat::Rgba);
+        let pixel_fmt = format
+            .map(CorePixelFormat::from)
+            .unwrap_or(CorePixelFormat::Rgba);
         let data_vec: Vec<u8> = data.to_vec();
 
         let results = tokio::task::spawn_blocking(move || {
             CoreScanner::new(cfg).scan_frame(&data_vec, width, height, pixel_fmt)
         })
         .await
-        .map_err(|e| napi::Error::from_reason(format!("Task error: {e}")))? ;
+        .map_err(|e| napi::Error::from_reason(format!("Task error: {e}")))?;
 
         match results {
             Ok(r) => Ok(r.into_iter().map(JsScanResult::from).collect()),
@@ -347,7 +356,6 @@ impl Scanner {
         }
     }
 }
-
 
 // ── ScanSession class ─────────────────────────────────────────────────────────
 
@@ -386,7 +394,9 @@ impl ScanSession {
     #[napi(constructor)]
     pub fn new(config: Option<JsScanConfig>) -> Self {
         let core_config = js_config_to_core(config);
-        Self { inner: CoreScanSession::new(core_config) }
+        Self {
+            inner: CoreScanSession::new(core_config),
+        }
     }
 
     /// Process a camera frame.
@@ -407,7 +417,9 @@ impl ScanSession {
         height: u32,
         format: Option<PixelFormat>,
     ) -> Option<Vec<JsScanResult>> {
-        let pixel_fmt = format.map(CorePixelFormat::from).unwrap_or(CorePixelFormat::Rgba);
+        let pixel_fmt = format
+            .map(CorePixelFormat::from)
+            .unwrap_or(CorePixelFormat::Rgba);
         self.inner
             .process_frame(&data, width, height, pixel_fmt)
             .map(|results| results.into_iter().map(JsScanResult::from).collect())

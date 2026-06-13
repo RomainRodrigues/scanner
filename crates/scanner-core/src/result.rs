@@ -129,7 +129,14 @@ impl ScanResult {
         Self {
             text: result.getText().to_string(),
             format: BarcodeFormat::from(*result.getBarcodeFormat()),
-            raw_bytes: { let b = result.getRawBytes().to_vec(); if b.is_empty() { None } else { Some(b) } },
+            raw_bytes: {
+                let b = result.getRawBytes().to_vec();
+                if b.is_empty() {
+                    None
+                } else {
+                    Some(b)
+                }
+            },
             points,
             confidence: 1.0, // rxing doesn't expose confidence directly
             orientation: 0.0,

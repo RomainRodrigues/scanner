@@ -150,8 +150,7 @@ fn main() {
     let cli = Cli::parse();
 
     let log_level = if cli.verbose { "debug" } else { "warn" };
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level))
-        .init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level)).init();
 
     match cli.command {
         Command::Scan {
@@ -193,7 +192,11 @@ fn run_scan(
 ) {
     let formats: Vec<BarcodeFormat> = format.into_iter().map(Into::into).collect();
     let config = ScannerConfig {
-        formats: if formats.is_empty() { None } else { Some(formats) },
+        formats: if formats.is_empty() {
+            None
+        } else {
+            Some(formats)
+        },
         try_rotations,
         max_results: 10,
         ..ScannerConfig::image_file()
@@ -219,11 +222,7 @@ fn run_scan(
                     OutputFormat::Pretty => {
                         println!("{}", format!("✓ {path_str}").green());
                         for r in &results {
-                            println!(
-                                "  {} {}",
-                                format!("[{}]", r.format).cyan(),
-                                r.text.bold(),
-                            );
+                            println!("  {} {}", format!("[{}]", r.format).cyan(), r.text.bold(),);
                         }
                     }
                     OutputFormat::Json => {
@@ -278,7 +277,7 @@ fn run_live(
     use nokhwa::{
         pixel_format::RgbFormat,
         query,
-        utils::{CameraIndex, RequestedFormat, RequestedFormatType, ApiBackend},
+        utils::{ApiBackend, CameraIndex, RequestedFormat, RequestedFormatType},
         Camera,
     };
     use scanner_core::Roi;
@@ -313,7 +312,11 @@ fn run_live(
     let roi_size = roi.clamp(0.1, 1.0);
 
     let config = ScannerConfig {
-        formats: if formats.is_empty() { None } else { Some(formats) },
+        formats: if formats.is_empty() {
+            None
+        } else {
+            Some(formats)
+        },
         preprocessing: true,
         try_rotations: false,
         try_invert: true,
@@ -325,13 +328,21 @@ fn run_live(
     let mut session = ScanSession::new(config);
 
     // ── Open camera ──────────────────────────────────────────────────────────
-    let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
+    let requested =
+        RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
 
     let mut camera = match Camera::new(CameraIndex::Index(camera_index), requested) {
         Ok(cam) => cam,
         Err(e) => {
-            eprintln!("{}: camera index {} — {e}", "Failed to open camera".red(), camera_index);
-            eprintln!("Run {} to see available cameras.", "'scanner live --list'".cyan());
+            eprintln!(
+                "{}: camera index {} — {e}",
+                "Failed to open camera".red(),
+                camera_index
+            );
+            eprintln!(
+                "Run {} to see available cameras.",
+                "'scanner live --list'".cyan()
+            );
             std::process::exit(1);
         }
     };
@@ -345,11 +356,7 @@ fn run_live(
     let cam_res = camera.resolution();
 
     println!("{}", "━".repeat(60).dimmed());
-    println!(
-        "  {} {}",
-        "📷 Camera:".bold(),
-        cam_info.human_name().cyan()
-    );
+    println!("  {} {}", "📷 Camera:".bold(), cam_info.human_name().cyan());
     println!(
         "  {} {}×{}",
         "   Resolution:".dimmed(),
@@ -361,11 +368,7 @@ fn run_live(
         "   ROI:".dimmed(),
         (roi_size * 100.0).round() as u32
     );
-    println!(
-        "  {} {}ms",
-        "   Cooldown:".dimmed(),
-        cooldown_ms
-    );
+    println!("  {} {}ms", "   Cooldown:".dimmed(), cooldown_ms);
     println!("{}", "━".repeat(60).dimmed());
     println!(
         "  {} Point the camera at a barcode. Press {} to stop.",
@@ -428,7 +431,7 @@ fn run_live(
         }
 
         // Print stats every 100 frames
-        if frame_count % 100 == 0 {
+        if frame_count.is_multiple_of(100) {
             let stats = session.stats();
             let elapsed = session_start.elapsed().as_secs_f64();
             let fps = frame_count as f64 / elapsed;
@@ -453,10 +456,7 @@ fn run_live(
     let elapsed = session_start.elapsed().as_secs_f64();
     println!(
         "  Session: {:.1}s  |  {} frames  |  avg {:.1}ms/scan  |  {} codes detected",
-        elapsed,
-        stats.frames_submitted,
-        stats.avg_scan_time_ms,
-        stats.codes_detected
+        elapsed, stats.frames_submitted, stats.avg_scan_time_ms, stats.codes_detected
     );
     println!("{}", "━".repeat(60).dimmed());
 }
@@ -474,7 +474,12 @@ fn run_benchmark(path: &PathBuf, iterations: u32) {
 
     println!(
         "{}",
-        format!("Benchmarking {} images × {} iterations", files.len(), iterations).bold()
+        format!(
+            "Benchmarking {} images × {} iterations",
+            files.len(),
+            iterations
+        )
+        .bold()
     );
     println!("{}", "─".repeat(60));
 
@@ -505,7 +510,9 @@ fn run_benchmark(path: &PathBuf, iterations: u32) {
         println!(
             "  {} avg={:.1}ms min={:.1}ms max={:.1}ms",
             format!("{}", file.file_name().unwrap_or_default().to_string_lossy()).cyan(),
-            avg, min, max
+            avg,
+            min,
+            max
         );
     }
 
@@ -539,7 +546,9 @@ fn collect_images_in_dir(
     extensions: &[&str],
     files: &mut Vec<PathBuf>,
 ) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
 
     for entry in entries.flatten() {
         let path = entry.path();

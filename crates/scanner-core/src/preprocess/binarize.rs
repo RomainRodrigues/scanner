@@ -80,8 +80,16 @@ fn build_integral_images(img: &GrayImage) -> (Vec<f64>, Vec<f64>) {
             let val = img.get_pixel(x, y)[0] as f64;
             let idx = (y * width + x) as usize;
 
-            let above = if y > 0 { sum[((y - 1) * width + x) as usize] } else { 0.0 };
-            let left = if x > 0 { sum[(y * width + x - 1) as usize] } else { 0.0 };
+            let above = if y > 0 {
+                sum[((y - 1) * width + x) as usize]
+            } else {
+                0.0
+            };
+            let left = if x > 0 {
+                sum[(y * width + x - 1) as usize]
+            } else {
+                0.0
+            };
             let above_left = if x > 0 && y > 0 {
                 sum[((y - 1) * width + x - 1) as usize]
             } else {
@@ -91,10 +99,16 @@ fn build_integral_images(img: &GrayImage) -> (Vec<f64>, Vec<f64>) {
             sum[idx] = val + above + left - above_left;
 
             let sq = val * val;
-            let above_sq =
-                if y > 0 { sum_sq[((y - 1) * width + x) as usize] } else { 0.0 };
-            let left_sq =
-                if x > 0 { sum_sq[(y * width + x - 1) as usize] } else { 0.0 };
+            let above_sq = if y > 0 {
+                sum_sq[((y - 1) * width + x) as usize]
+            } else {
+                0.0
+            };
+            let left_sq = if x > 0 {
+                sum_sq[(y * width + x - 1) as usize]
+            } else {
+                0.0
+            };
             let above_left_sq = if x > 0 && y > 0 {
                 sum_sq[((y - 1) * width + x - 1) as usize]
             } else {
@@ -121,9 +135,7 @@ fn integral_rect(table: &[f64], x0: u32, y0: u32, x1: u32, y1: u32, width: u32) 
         }
     };
 
-    get(x1 as i64, y1 as i64)
-        - get(x0 as i64 - 1, y1 as i64)
-        - get(x1 as i64, y0 as i64 - 1)
+    get(x1 as i64, y1 as i64) - get(x0 as i64 - 1, y1 as i64) - get(x1 as i64, y0 as i64 - 1)
         + get(x0 as i64 - 1, y0 as i64 - 1)
 }
 

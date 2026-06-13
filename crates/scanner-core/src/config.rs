@@ -28,7 +28,12 @@ pub struct Roi {
 impl Roi {
     /// A full-frame ROI (no cropping).
     pub fn full() -> Self {
-        Self { x: 0.0, y: 0.0, width: 1.0, height: 1.0 }
+        Self {
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+        }
     }
 
     /// A centered ROI with the given size fraction.
@@ -36,7 +41,12 @@ impl Roi {
     /// `size` must be in (0.0, 1.0]. E.g. 0.6 creates a centered 60%×60% ROI.
     pub fn centered(size: f32) -> Self {
         let offset = (1.0 - size) / 2.0;
-        Self { x: offset, y: offset, width: size, height: size }
+        Self {
+            x: offset,
+            y: offset,
+            width: size,
+            height: size,
+        }
     }
 
     /// Convert ROI fractions to pixel coordinates for a given image size.

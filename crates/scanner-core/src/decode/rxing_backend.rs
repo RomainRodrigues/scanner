@@ -13,10 +13,10 @@ use crate::config::ScannerConfig;
 use crate::error::ScanError;
 use crate::result::{BarcodeFormat, ScanResult};
 use image::GrayImage;
+use rxing::common::HybridBinarizer;
 use rxing::{
     BinaryBitmap, DecodeHints, Exceptions, Luma8LuminanceSource, MultiFormatReader, Reader,
 };
-use rxing::common::HybridBinarizer;
 
 /// Wraps rxing's MultiFormatReader with our configuration.
 pub struct RxingDecoder {
@@ -43,9 +43,9 @@ impl RxingDecoder {
         let mut bitmap = BinaryBitmap::new(binarizer);
 
         let mut reader = MultiFormatReader::default();
-        let mut hints = self.hints.clone();
+        let hints = self.hints.clone();
 
-        match reader.decode_with_hints(&mut bitmap, &mut hints) {
+        match reader.decode_with_hints(&mut bitmap, &hints) {
             Ok(result) => {
                 let scan = ScanResult::from_rxing(&result);
                 Ok(vec![scan])
@@ -85,9 +85,7 @@ fn build_hints(config: &ScannerConfig) -> DecodeHints {
 /// Convert our `BarcodeFormat` to an rxing `BarcodeFormat`.
 fn format_to_rxing(f: &BarcodeFormat) -> Option<rxing::BarcodeFormat> {
     match f {
-        BarcodeFormat::QrCode | BarcodeFormat::MicroQr => {
-            Some(rxing::BarcodeFormat::QR_CODE)
-        }
+        BarcodeFormat::QrCode | BarcodeFormat::MicroQr => Some(rxing::BarcodeFormat::QR_CODE),
         BarcodeFormat::DataMatrix => Some(rxing::BarcodeFormat::DATA_MATRIX),
         BarcodeFormat::Aztec => Some(rxing::BarcodeFormat::AZTEC),
         BarcodeFormat::Pdf417 => Some(rxing::BarcodeFormat::PDF_417),

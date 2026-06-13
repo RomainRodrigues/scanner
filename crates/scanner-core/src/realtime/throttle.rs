@@ -104,7 +104,9 @@ pub struct ScanTimer {
 
 impl ScanTimer {
     pub fn start() -> Self {
-        Self { start: Instant::now() }
+        Self {
+            start: Instant::now(),
+        }
     }
 
     pub fn elapsed(&self) -> Duration {

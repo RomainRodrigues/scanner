@@ -110,8 +110,7 @@ impl ScanSession {
         self.stats.last_scan_time_ms = elapsed_ms;
         // Running average
         let n = self.stats.frames_scanned as f64;
-        self.stats.avg_scan_time_ms =
-            (self.stats.avg_scan_time_ms * (n - 1.0) + elapsed_ms) / n;
+        self.stats.avg_scan_time_ms = (self.stats.avg_scan_time_ms * (n - 1.0) + elapsed_ms) / n;
 
         match scan_result {
             Ok(results) => {

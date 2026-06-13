@@ -90,10 +90,7 @@ impl Scanner {
     /// 3. Preprocessing + scan (if fast scan failed)
     /// 4. Rotation retries (if configured and still failed)
     /// 5. Invert retry (if configured and still failed)
-    pub(crate) fn scan_luma(
-        &self,
-        luma: &image::GrayImage,
-    ) -> Result<Vec<ScanResult>, ScanError> {
+    pub(crate) fn scan_luma(&self, luma: &image::GrayImage) -> Result<Vec<ScanResult>, ScanError> {
         let t0 = Instant::now();
 
         // Step 1: ROI crop
@@ -135,7 +132,10 @@ impl Scanner {
                 if self.config.preprocessing {
                     let preprocessed = preprocess::full_pipeline(&rotated);
                     if let Ok(results) = self.decoder.decode(&preprocessed) {
-                        debug!("Rotation {angle}° + preprocess success in {:?}", t0.elapsed());
+                        debug!(
+                            "Rotation {angle}° + preprocess success in {:?}",
+                            t0.elapsed()
+                        );
                         return Ok(results);
                     }
                 }

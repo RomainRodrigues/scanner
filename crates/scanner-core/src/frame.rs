@@ -66,7 +66,11 @@ impl<'a> Frame<'a> {
         if data.len() < expected {
             return Err(ScanError::InvalidImage(format!(
                 "Buffer too small: expected {} bytes for {}x{} {:?}, got {}",
-                expected, width, height, format, data.len()
+                expected,
+                width,
+                height,
+                format,
+                data.len()
             )));
         }
         if width == 0 || height == 0 {
@@ -74,7 +78,12 @@ impl<'a> Frame<'a> {
                 "Frame dimensions must be non-zero".to_string(),
             ));
         }
-        Ok(Self { data, width, height, format })
+        Ok(Self {
+            data,
+            width,
+            height,
+            format,
+        })
     }
 
     /// Convert this frame to a grayscale `image::GrayImage`.
@@ -98,30 +107,18 @@ impl<'a> Frame<'a> {
     pub fn to_dynamic_image(&self) -> image::DynamicImage {
         match self.format {
             PixelFormat::Luma => {
-                let gray = image::GrayImage::from_raw(
-                    self.width,
-                    self.height,
-                    self.data.to_vec(),
-                )
-                .expect("Luma frame valid");
+                let gray = image::GrayImage::from_raw(self.width, self.height, self.data.to_vec())
+                    .expect("Luma frame valid");
                 image::DynamicImage::ImageLuma8(gray)
             }
             PixelFormat::Rgba => {
-                let img = image::RgbaImage::from_raw(
-                    self.width,
-                    self.height,
-                    self.data.to_vec(),
-                )
-                .expect("RGBA frame valid");
+                let img = image::RgbaImage::from_raw(self.width, self.height, self.data.to_vec())
+                    .expect("RGBA frame valid");
                 image::DynamicImage::ImageRgba8(img)
             }
             PixelFormat::Rgb => {
-                let img = image::RgbImage::from_raw(
-                    self.width,
-                    self.height,
-                    self.data.to_vec(),
-                )
-                .expect("RGB frame valid");
+                let img = image::RgbImage::from_raw(self.width, self.height, self.data.to_vec())
+                    .expect("RGB frame valid");
                 image::DynamicImage::ImageRgb8(img)
             }
             _ => {

@@ -74,5 +74,10 @@ fn bench_scan_file(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_grayscale_conversion, bench_preprocessing, bench_scan_file);
+criterion_group!(
+    benches,
+    bench_grayscale_conversion,
+    bench_preprocessing,
+    bench_scan_file
+);
 criterion_main!(benches);

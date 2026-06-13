@@ -26,12 +26,11 @@
 //! }
 //! ```
 
-use wasm_bindgen::prelude::*;
-use scanner_core::{
-    PixelFormat, ScanSession as CoreScanSession,
-    ScannerConfig, Scanner as CoreScanner,
-};
 use scanner_core::config::Roi as CoreRoi;
+use scanner_core::{
+    PixelFormat, ScanSession as CoreScanSession, Scanner as CoreScanner, ScannerConfig,
+};
+use wasm_bindgen::prelude::*;
 
 // ── JS-facing result type ─────────────────────────────────────────────────────
 
@@ -79,7 +78,12 @@ fn build_config(
     cooldown_ms: Option<u64>,
 ) -> ScannerConfig {
     let roi = match (roi_x, roi_y, roi_w, roi_h) {
-        (Some(x), Some(y), Some(w), Some(h)) => Some(CoreRoi { x, y, width: w, height: h }),
+        (Some(x), Some(y), Some(w), Some(h)) => Some(CoreRoi {
+            x,
+            y,
+            width: w,
+            height: h,
+        }),
         _ => None,
     };
 
@@ -124,7 +128,9 @@ impl WasmScanner {
         roi_h: Option<f32>,
     ) -> WasmScanner {
         let config = build_config(preprocessing, try_invert, roi_x, roi_y, roi_w, roi_h, None);
-        WasmScanner { inner: CoreScanner::new(config) }
+        WasmScanner {
+            inner: CoreScanner::new(config),
+        }
     }
 
     /// Scan from browser ImageData (RGBA, 4 bytes/pixel).
@@ -135,7 +141,10 @@ impl WasmScanner {
     /// @returns {ScanResult[]} Array of scan results (empty if not found).
     #[wasm_bindgen(js_name = scanRgba)]
     pub fn scan_rgba(&self, data: &[u8], width: u32, height: u32) -> Vec<ScanResult> {
-        match self.inner.scan_frame(data, width, height, PixelFormat::Rgba) {
+        match self
+            .inner
+            .scan_frame(data, width, height, PixelFormat::Rgba)
+        {
             Ok(results) => results.into_iter().map(ScanResult::from).collect(),
             Err(_) => vec![],
         }
@@ -161,7 +170,10 @@ impl WasmScanner {
     /// @param {number} height - Frame height.
     #[wasm_bindgen(js_name = scanLuma)]
     pub fn scan_luma(&self, data: &[u8], width: u32, height: u32) -> Vec<ScanResult> {
-        match self.inner.scan_frame(data, width, height, PixelFormat::Luma) {
+        match self
+            .inner
+            .scan_frame(data, width, height, PixelFormat::Luma)
+        {
             Ok(results) => results.into_iter().map(ScanResult::from).collect(),
             Err(_) => vec![],
         }
@@ -213,11 +225,17 @@ impl WasmScanSession {
     ) -> WasmScanSession {
         console_error_panic_hook_init();
         let config = build_config(
-            preprocessing, try_invert,
-            roi_x, roi_y, roi_w, roi_h,
+            preprocessing,
+            try_invert,
+            roi_x,
+            roi_y,
+            roi_w,
+            roi_h,
             cooldown_ms.map(|v| v as u64),
         );
-        WasmScanSession { inner: CoreScanSession::new(config) }
+        WasmScanSession {
+            inner: CoreScanSession::new(config),
+        }
     }
 
     /// Process a camera frame (RGBA, 4 bytes/pixel — browser ImageData format).
