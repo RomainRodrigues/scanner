@@ -194,30 +194,29 @@ fn test_code128_filter_does_not_return_qr() {
         ..ScannerConfig::default()
     });
 
-    // Blank image → should be NotFound (no format mismatch to worry about here).
-    let data = vec![255u8; 200 * 200 * 4];
-    let result = scanner.scan_frame(&data, 200, 200, PixelFormat::Rgba);
-    assert!(result.is_err(), "Blank image should return NotFound");
+    let test_path = "../../tests/images/qr/clean_hd.png";
+    if !std::path::Path::new(test_path).exists() {
+        println!("Skipping test: test image not found");
+        return;
+    }
+
+    let result = scanner.scan_file(test_path);
+    assert!(result.is_err(), "QR code image should return NotFound when Code128 format is forced");
 }
 
 /// QrCode-only config: any successful decode must be QR or MicroQR.
 #[test]
 fn test_qr_only_returns_only_qr_formats() {
     let scanner = Scanner::new(ScannerConfig::qr_only());
-    let data = vec![128u8; 100 * 100 * 4];
-    match scanner.scan_frame(&data, 100, 100, PixelFormat::Rgba) {
-        Err(scanner_core::ScanError::NotFound) => {}
-        Ok(results) => {
-            for r in &results {
-                assert!(
-                    matches!(r.format, BarcodeFormat::QrCode | BarcodeFormat::MicroQr),
-                    "qr_only config returned unexpected format: {:?}",
-                    r.format
-                );
-            }
-        }
-        Err(e) => panic!("Unexpected error: {e:?}"),
+    
+    let test_path = "../../tests/images/barcode_1d/ean13_clean.png";
+    if !std::path::Path::new(test_path).exists() {
+        println!("Skipping test: test image not found");
+        return;
     }
+
+    let result = scanner.scan_file(test_path);
+    assert!(result.is_err(), "EAN-13 barcode should return NotFound when only QrCode format is requested");
 }
 
 /// QrCode filter should still find QR codes when present (allowlist must not block valid formats).

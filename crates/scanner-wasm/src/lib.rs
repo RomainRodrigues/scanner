@@ -110,32 +110,37 @@ fn js_config_to_core(js_val: JsValue, is_session: bool) -> ScannerConfig {
         return config;
     }
 
-    if let Ok(js_cfg) = serde_wasm_bindgen::from_value::<JsWasmScanConfig>(js_val) {
-        if let Some(formats) = js_cfg.formats {
-            config.formats = Some(formats);
+    match serde_wasm_bindgen::from_value::<JsWasmScanConfig>(js_val) {
+        Ok(js_cfg) => {
+            if let Some(formats) = js_cfg.formats {
+                config.formats = Some(formats);
+            }
+            if let Some(pre) = js_cfg.preprocessing {
+                config.preprocessing = pre;
+            }
+            if let Some(rot) = js_cfg.try_rotations {
+                config.try_rotations = rot;
+            }
+            if let Some(inv) = js_cfg.try_invert {
+                config.try_invert = inv;
+            }
+            if let Some(max) = js_cfg.max_results {
+                config.max_results = max as usize;
+            }
+            if let Some(roi) = js_cfg.roi {
+                config.roi = Some(CoreRoi {
+                    x: roi.x,
+                    y: roi.y,
+                    width: roi.width,
+                    height: roi.height,
+                });
+            }
+            if let Some(cd) = js_cfg.dedup_cooldown_ms {
+                config.dedup_cooldown_ms = cd as u64;
+            }
         }
-        if let Some(pre) = js_cfg.preprocessing {
-            config.preprocessing = pre;
-        }
-        if let Some(rot) = js_cfg.try_rotations {
-            config.try_rotations = rot;
-        }
-        if let Some(inv) = js_cfg.try_invert {
-            config.try_invert = inv;
-        }
-        if let Some(max) = js_cfg.max_results {
-            config.max_results = max as usize;
-        }
-        if let Some(roi) = js_cfg.roi {
-            config.roi = Some(CoreRoi {
-                x: roi.x,
-                y: roi.y,
-                width: roi.width,
-                height: roi.height,
-            });
-        }
-        if let Some(cd) = js_cfg.dedup_cooldown_ms {
-            config.dedup_cooldown_ms = cd as u64;
+        Err(e) => {
+            web_sys::console::warn_1(&format!("Scanner configuration error: {e}. Using defaults.").into());
         }
     }
     

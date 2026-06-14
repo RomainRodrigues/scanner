@@ -27,10 +27,15 @@ pub enum BarcodeFormat {
     Pdf417,
 
     // 1D formats
+    #[serde(rename = "code_128")]
     Code128,
+    #[serde(rename = "code_39")]
     Code39,
+    #[serde(rename = "code_93")]
     Code93,
+    #[serde(rename = "ean_13")]
     Ean13,
+    #[serde(rename = "ean_8")]
     Ean8,
     UpcA,
     UpcE,
