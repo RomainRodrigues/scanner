@@ -41,6 +41,29 @@ pub fn wasm_init() {
     console_error_panic_hook::set_once();
 }
 
+#[wasm_bindgen(typescript_custom_section)]
+const TS_APPEND_CONTENT: &'static str = r#"
+/** 
+ * Barcode formats supported by the scanner.
+ */
+export type BarcodeFormat = 
+  | "qr_code"
+  | "micro_qr"
+  | "data_matrix"
+  | "aztec"
+  | "pdf417"
+  | "code_128"
+  | "code_39"
+  | "code_93"
+  | "ean_13"
+  | "ean_8"
+  | "upc_a"
+  | "upc_e"
+  | "itf"
+  | "codabar"
+  | "unknown";
+"#;
+
 // ── JS-facing result type ─────────────────────────────────────────────────────
 
 /// A detected barcode result, serialized as a JS object.
@@ -83,13 +106,21 @@ use tsify::Tsify;
 #[derive(Deserialize, Default, Tsify)]
 #[tsify(from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
+#[serde(default)]
 pub struct WasmScanConfig {
+    #[tsify(optional)]
     pub formats: Option<Vec<scanner_core::result::BarcodeFormat>>,
+    #[tsify(optional)]
     pub preprocessing: Option<bool>,
+    #[tsify(optional)]
     pub try_rotations: Option<bool>,
+    #[tsify(optional)]
     pub try_invert: Option<bool>,
+    #[tsify(optional)]
     pub max_results: Option<u32>,
+    #[tsify(optional)]
     pub roi: Option<WasmRoi>,
+    #[tsify(optional)]
     pub dedup_cooldown_ms: Option<f64>,
 }
 

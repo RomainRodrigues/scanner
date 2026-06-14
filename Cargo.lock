@@ -2229,7 +2229,7 @@ dependencies = [
 
 [[package]]
 name = "scanner-cli"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "clap",
  "colored",
@@ -2243,7 +2243,7 @@ dependencies = [
 
 [[package]]
 name = "scanner-core"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "criterion",
  "env_logger",
@@ -2258,7 +2258,7 @@ dependencies = [
 
 [[package]]
 name = "scanner-napi"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "napi",
  "napi-build",
@@ -2270,7 +2270,7 @@ dependencies = [
 
 [[package]]
 name = "scanner-wasm"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "chrono",
  "console_error_panic_hook",
