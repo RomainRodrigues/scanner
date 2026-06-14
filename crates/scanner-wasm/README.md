@@ -82,19 +82,30 @@ You can filter which barcodes to detect using the `formats` array in the configu
 ## Configuration Options
 
 ```typescript
-interface JsWasmScanConfig {
-  formats?: string[];
-  preprocessing?: boolean;
-  tryRotations?: boolean;
-  tryInvert?: boolean;
-  maxResults?: number;
-  roi?: {
+export interface WasmRoi {
     x: number;
     y: number;
     width: number;
     height: number;
-  };
-  dedupCooldownMs?: number;
+}
+
+export interface WasmScanConfig {
+    formats: BarcodeFormat[] | null;
+    preprocessing: boolean | null;
+    tryRotations: boolean | null;
+    tryInvert: boolean | null;
+    maxResults: number | null;
+    roi: WasmRoi | null;
+    dedupCooldownMs: number | null;
+}
+
+export class ScanResult {
+    text: string;
+    format: string;
+    points: Float32Array;
+    confidence: number;
+    orientation: number;
+    timestamp_ms: number;
 }
 ```
 

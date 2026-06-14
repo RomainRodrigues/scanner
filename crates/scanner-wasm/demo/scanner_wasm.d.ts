@@ -1,5 +1,22 @@
 /* tslint:disable */
 /* eslint-disable */
+export interface WasmRoi {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export interface WasmScanConfig {
+    formats: BarcodeFormat[] | null;
+    preprocessing: boolean | null;
+    tryRotations: boolean | null;
+    tryInvert: boolean | null;
+    maxResults: number | null;
+    roi: WasmRoi | null;
+    dedupCooldownMs: number | null;
+}
+
 
 /**
  * A detected barcode result, serialized as a JS object.
@@ -61,15 +78,14 @@ export class WasmScanSession {
     /**
      * Create a new scan session.
      *
-     * @param {boolean} [preprocessing=true] - Enable adaptive preprocessing.
-     * @param {boolean} [try_invert=true] - Try inverted image.
-     * @param {number} [roi_x] - ROI left edge (0.0–1.0).
-     * @param {number} [roi_y] - ROI top edge (0.0–1.0).
-     * @param {number} [roi_w] - ROI width (0.0–1.0).
-     * @param {number} [roi_h] - ROI height (0.0–1.0).
-     * @param {number} [cooldown_ms=2000] - Dedup cooldown in milliseconds.
+     * @param {Object} [config] - Configuration object.
+     * @param {string[]} [config.formats] - Formats to scan.
+     * @param {boolean} [config.preprocessing=true] - Enable adaptive preprocessing.
+     * @param {boolean} [config.tryInvert=true] - Try inverted image.
+     * @param {Object} [config.roi] - Region of Interest {x, y, width, height} (0.0–1.0).
+     * @param {number} [config.dedupCooldownMs=2000] - Dedup cooldown in milliseconds.
      */
-    constructor(preprocessing?: boolean | null, try_invert?: boolean | null, roi_x?: number | null, roi_y?: number | null, roi_w?: number | null, roi_h?: number | null, cooldown_ms?: number | null);
+    constructor(config?: WasmScanConfig | null);
     /**
      * Process a camera frame (grayscale, 1 byte/pixel — fastest path).
      *
@@ -127,14 +143,14 @@ export class WasmScanner {
     /**
      * Create a new scanner.
      *
-     * @param {boolean} [preprocessing=true] - Enable adaptive preprocessing.
-     * @param {boolean} [try_invert=true] - Try inverted image (white-on-black).
-     * @param {number} [roi_x] - ROI left (0.0–1.0).
-     * @param {number} [roi_y] - ROI top (0.0–1.0).
-     * @param {number} [roi_w] - ROI width (0.0–1.0).
-     * @param {number} [roi_h] - ROI height (0.0–1.0).
+     * @param {Object} [config] - Configuration object.
+     * @param {string[]} [config.formats] - Formats to scan (e.g. ["qr_code", "code_128"]).
+     * @param {boolean} [config.preprocessing=true] - Enable adaptive preprocessing.
+     * @param {boolean} [config.tryRotations=false] - Try rotated images.
+     * @param {boolean} [config.tryInvert=true] - Try inverted image (white-on-black).
+     * @param {Object} [config.roi] - Region of Interest {x, y, width, height} (0.0–1.0).
      */
-    constructor(preprocessing?: boolean | null, try_invert?: boolean | null, roi_x?: number | null, roi_y?: number | null, roi_w?: number | null, roi_h?: number | null);
+    constructor(config?: WasmScanConfig | null);
     /**
      * Scan from a grayscale buffer (1 byte/pixel, fastest).
      *
@@ -162,15 +178,17 @@ export class WasmScanner {
     scanRgba(data: Uint8Array, width: number, height: number): ScanResult[];
 }
 
+export function wasm_init(): void;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_get_scanresult_confidence: (a: number) => number;
-    readonly __wbg_get_scanresult_format: (a: number) => [number, number];
+    readonly __wbg_get_scanresult_format: (a: number, b: number) => void;
     readonly __wbg_get_scanresult_orientation: (a: number) => number;
-    readonly __wbg_get_scanresult_points: (a: number) => [number, number];
-    readonly __wbg_get_scanresult_text: (a: number) => [number, number];
+    readonly __wbg_get_scanresult_points: (a: number, b: number) => void;
+    readonly __wbg_get_scanresult_text: (a: number, b: number) => void;
     readonly __wbg_get_scanresult_timestamp_ms: (a: number) => number;
     readonly __wbg_scanresult_free: (a: number, b: number) => void;
     readonly __wbg_set_scanresult_confidence: (a: number, b: number) => void;
@@ -181,26 +199,26 @@ export interface InitOutput {
     readonly __wbg_set_scanresult_timestamp_ms: (a: number, b: number) => void;
     readonly __wbg_wasmscanner_free: (a: number, b: number) => void;
     readonly __wbg_wasmscansession_free: (a: number, b: number) => void;
-    readonly wasmscanner_new: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
-    readonly wasmscanner_scanLuma: (a: number, b: number, c: number, d: number, e: number) => [number, number];
-    readonly wasmscanner_scanRgb: (a: number, b: number, c: number, d: number, e: number) => [number, number];
-    readonly wasmscanner_scanRgba: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly wasmscanner_new: (a: number) => number;
+    readonly wasmscanner_scanLuma: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+    readonly wasmscanner_scanRgb: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+    readonly wasmscanner_scanRgba: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly wasmscansession_avgScanTimeMs: (a: number) => number;
     readonly wasmscansession_clearCooldown: (a: number, b: number, c: number) => void;
     readonly wasmscansession_codesDetected: (a: number) => number;
     readonly wasmscansession_framesScanned: (a: number) => number;
     readonly wasmscansession_framesSubmitted: (a: number) => number;
-    readonly wasmscansession_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => number;
-    readonly wasmscansession_processFrameLuma: (a: number, b: number, c: number, d: number, e: number) => [number, number];
-    readonly wasmscansession_processFrameRgba: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly wasmscansession_new: (a: number) => number;
+    readonly wasmscansession_processFrameLuma: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
+    readonly wasmscansession_processFrameRgba: (a: number, b: number, c: number, d: number, e: number, f: number) => void;
     readonly wasmscansession_reset: (a: number) => void;
     readonly wasmscansession_skipInterval: (a: number) => number;
-    readonly __wbindgen_free: (a: number, b: number, c: number) => void;
-    readonly __wbindgen_malloc: (a: number, b: number) => number;
-    readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-    readonly __externref_table_alloc: () => number;
-    readonly __wbindgen_externrefs: WebAssembly.Table;
-    readonly __externref_drop_slice: (a: number, b: number) => void;
+    readonly wasm_init: () => void;
+    readonly __wbindgen_export: (a: number, b: number) => number;
+    readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;
+    readonly __wbindgen_export3: (a: number, b: number, c: number) => void;
+    readonly __wbindgen_export4: (a: number) => void;
+    readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
     readonly __wbindgen_start: () => void;
 }
 

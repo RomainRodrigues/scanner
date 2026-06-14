@@ -78,69 +78,63 @@ impl From<scanner_core::ScanResult> for ScanResult {
 // ── Config helper ─────────────────────────────────────────────────────────────
 
 use serde::Deserialize;
+use tsify::Tsify;
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, Tsify)]
+#[tsify(from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
-pub struct JsWasmScanConfig {
+pub struct WasmScanConfig {
     pub formats: Option<Vec<scanner_core::result::BarcodeFormat>>,
     pub preprocessing: Option<bool>,
     pub try_rotations: Option<bool>,
     pub try_invert: Option<bool>,
     pub max_results: Option<u32>,
-    pub roi: Option<JsWasmRoi>,
+    pub roi: Option<WasmRoi>,
     pub dedup_cooldown_ms: Option<f64>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Tsify)]
+#[tsify(from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
-pub struct JsWasmRoi {
+pub struct WasmRoi {
     pub x: f32,
     pub y: f32,
     pub width: f32,
     pub height: f32,
 }
 
-fn js_config_to_core(js_val: JsValue, is_session: bool) -> ScannerConfig {
+fn js_config_to_core(js_cfg: Option<WasmScanConfig>, is_session: bool) -> ScannerConfig {
     let mut config = ScannerConfig::default();
     if is_session {
         config.try_rotations = false;
     }
 
-    if js_val.is_null() || js_val.is_undefined() {
-        return config;
-    }
-
-    match serde_wasm_bindgen::from_value::<JsWasmScanConfig>(js_val) {
-        Ok(js_cfg) => {
-            if let Some(formats) = js_cfg.formats {
-                config.formats = Some(formats);
-            }
-            if let Some(pre) = js_cfg.preprocessing {
-                config.preprocessing = pre;
-            }
-            if let Some(rot) = js_cfg.try_rotations {
-                config.try_rotations = rot;
-            }
-            if let Some(inv) = js_cfg.try_invert {
-                config.try_invert = inv;
-            }
-            if let Some(max) = js_cfg.max_results {
-                config.max_results = max as usize;
-            }
-            if let Some(roi) = js_cfg.roi {
-                config.roi = Some(CoreRoi {
-                    x: roi.x,
-                    y: roi.y,
-                    width: roi.width,
-                    height: roi.height,
-                });
-            }
-            if let Some(cd) = js_cfg.dedup_cooldown_ms {
-                config.dedup_cooldown_ms = cd as u64;
-            }
+    if let Some(js_cfg) = js_cfg {
+        if let Some(formats) = js_cfg.formats {
+            config.formats = Some(formats);
         }
-        Err(e) => {
-            web_sys::console::warn_1(&format!("Scanner configuration error: {e}. Using defaults.").into());
+        if let Some(pre) = js_cfg.preprocessing {
+            config.preprocessing = pre;
+        }
+        if let Some(rot) = js_cfg.try_rotations {
+            config.try_rotations = rot;
+        }
+        if let Some(inv) = js_cfg.try_invert {
+            config.try_invert = inv;
+        }
+        if let Some(max) = js_cfg.max_results {
+            config.max_results = max as usize;
+        }
+        if let Some(roi) = js_cfg.roi {
+            config.roi = Some(CoreRoi {
+                x: roi.x,
+                y: roi.y,
+                width: roi.width,
+                height: roi.height,
+            });
+        }
+        if let Some(cd) = js_cfg.dedup_cooldown_ms {
+            config.dedup_cooldown_ms = cd as u64;
         }
     }
     
@@ -168,7 +162,7 @@ impl WasmScanner {
     /// @param {boolean} [config.tryInvert=true] - Try inverted image (white-on-black).
     /// @param {Object} [config.roi] - Region of Interest {x, y, width, height} (0.0–1.0).
     #[wasm_bindgen(constructor)]
-    pub fn new(config: JsValue) -> WasmScanner {
+    pub fn new(config: Option<WasmScanConfig>) -> WasmScanner {
         let core_config = js_config_to_core(config, false);
         WasmScanner {
             inner: CoreScanner::new(core_config),
@@ -258,7 +252,7 @@ impl WasmScanSession {
     /// @param {Object} [config.roi] - Region of Interest {x, y, width, height} (0.0–1.0).
     /// @param {number} [config.dedupCooldownMs=2000] - Dedup cooldown in milliseconds.
     #[wasm_bindgen(constructor)]
-    pub fn new(config: JsValue) -> WasmScanSession {
+    pub fn new(config: Option<WasmScanConfig>) -> WasmScanSession {
         let core_config = js_config_to_core(config, true);
         WasmScanSession {
             inner: CoreScanSession::new(core_config),
