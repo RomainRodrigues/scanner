@@ -179,7 +179,13 @@ import wasmUrl from '@gueshbzh-perso/scanner-wasm/scanner_wasm_bg.wasm?url'; // 
 // Au montage du composant (ex: onMounted en Vue 3)
 await init(wasmUrl);
 const session = new WasmScanSession({ ... });
+
+// Au démontage du composant (ex: onUnmounted en Vue 3)
+session.free(); // IMPORTANT : Libère la mémoire WASM pour éviter les fuites !
 ```
+
+> ⚠️ **IMPORTANT : Gestion de la mémoire en WASM**  
+> Les objets générés par WebAssembly (`WasmScanSession` ou `WasmScanner`) allouent de la mémoire côté Rust. Cette mémoire n'est pas libérée automatiquement par le Garbage Collector de JavaScript. Vous **devez absolument** appeler la méthode `.free()` lorsque vous n'en avez plus besoin, sous peine de provoquer une fuite de mémoire (memory leak) qui fera crasher l'onglet du navigateur à terme.
 
 Une fois publié (ou lié localement avec `npm link` depuis le dossier `pkg`), vous pourrez l'importer de manière transparente dans n'importe quel projet JavaScript/TypeScript côté client pour avoir un décodage ultra-rapide directement dans le navigateur !
 

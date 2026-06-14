@@ -110,18 +110,22 @@ wasm-pack build --target web --out-dir pkg --release
 ```
 
 ```javascript
-import { BrowserScanner, scanImage } from './scanner-web.js';
+import init, { WasmScanner, WasmScanSession } from './pkg/scanner_wasm.js';
 
-// Camera stream with auto requestAnimationFrame loop
-const scanner = new BrowserScanner({
-  onDetect: (result) => console.log('Scanned:', result.text),
-  roi: 0.7,
-  formats: ['qr_code', 'code_128'], // optional — default: all formats
-});
-await scanner.start(document.querySelector('video'));
+await init(); // Initialize the WASM module
 
-// Static image
-const results = await scanImage(document.querySelector('img'));
+// --- Real-time camera stream ---
+const session = new WasmScanSession({ roi: { x: 0.15, y: 0.15, width: 0.7, height: 0.7 } });
+// In your requestAnimationFrame loop:
+// const results = session.processFrameRgba(imageData.data, width, height);
+
+// IMPORTANT: Free memory when stopping the camera to prevent memory leaks
+session.free(); 
+
+// --- Static image ---
+const scanner = new WasmScanner();
+// const results = scanner.scanRgba(imageData.data, width, height);
+scanner.free(); // Free memory when done
 ```
 
 > **Format strings for WASM/JSON** (serde `snake_case`):
