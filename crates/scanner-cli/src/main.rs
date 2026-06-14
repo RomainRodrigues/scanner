@@ -110,6 +110,7 @@ enum OutputFormat {
 #[derive(Clone, ValueEnum, Debug)]
 enum FormatArg {
     Qr,
+    MicroQr,
     DataMatrix,
     Aztec,
     Pdf417,
@@ -128,6 +129,7 @@ impl From<FormatArg> for BarcodeFormat {
     fn from(f: FormatArg) -> Self {
         match f {
             FormatArg::Qr => BarcodeFormat::QrCode,
+            FormatArg::MicroQr => BarcodeFormat::MicroQr,
             FormatArg::DataMatrix => BarcodeFormat::DataMatrix,
             FormatArg::Aztec => BarcodeFormat::Aztec,
             FormatArg::Pdf417 => BarcodeFormat::Pdf417,
@@ -328,6 +330,9 @@ fn run_live(
     let mut session = ScanSession::new(config);
 
     // ── Open camera ──────────────────────────────────────────────────────────
+    // nokhwa's Closest variant takes a CameraFormat, not a plain Resolution.
+    // We request the highest available frame rate and let the driver pick.
+    // TODO: filter by width/height once nokhwa exposes a simpler resolution filter.
     let requested =
         RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
 
