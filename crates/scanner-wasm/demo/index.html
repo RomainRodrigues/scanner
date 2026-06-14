@@ -503,6 +503,10 @@
     stream = null;
     const video = document.getElementById('video');
     video.srcObject = null;
+    if (session) {
+      session.free();
+      session = null;
+    }
     document.getElementById('scan-line').classList.remove('active');
     document.getElementById('btn-start').disabled = false;
     document.getElementById('btn-stop').disabled = true;
@@ -573,6 +577,7 @@
       results.forEach(r => addResult(r, `From: ${file.name}`));
     }
 
+    scanner.free(); // Prevent memory leak
     document.getElementById('file-input').value = '';
   };
 
