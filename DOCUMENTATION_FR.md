@@ -102,7 +102,7 @@ Si tu veux mettre ton scanner sur un site web frontend (React, Vue, ou JS vanill
 ```bash
 cd crates/scanner-wasm
 # Construire le code WebAssembly (WASM) en module ES standard (recommandé pour Vite / Nuxt 3)
-wasm-pack build --target web --out-dir pkg --release
+wasm-pack build --target web --out-dir pkg --release --weak-refs
 ```
 
 **Lancer la démonstration Web :**
@@ -145,7 +145,7 @@ Vous pouvez ensuite soit publier ce module sur votre registre npm privé, soit i
 Idéal pour un déploiement direct (Vercel, Netlify, Github Pages) :
 ```bash
 cd crates/scanner-wasm
-wasm-pack build --target web --out-dir pkg --release
+wasm-pack build --target web --out-dir pkg --release --weak-refs
 ```
 Copiez simplement l'intégralité du contenu du dossier `crates/scanner-wasm/pkg` dans le dossier `public` ou `assets` de votre frontend. Assurez-vous que votre serveur web sert le fichier `.wasm` avec le bon Content-Type (`application/wasm`).
 
@@ -160,7 +160,7 @@ Si vous souhaitez distribuer votre moteur WASM pour qu'il soit installable via `
    ```bash
    cd crates/scanner-wasm
    # Pour Vite / Nuxt 3
-   wasm-pack build --scope gueshbzh-perso --target web --out-dir pkg --release
+   wasm-pack build --scope gueshbzh-perso --target web --out-dir pkg --release --weak-refs
    ```
 
 3. **Publier sur le registre NPM :**
@@ -181,11 +181,12 @@ await init(wasmUrl);
 const session = new WasmScanSession({ ... });
 
 // Au démontage du composant (ex: onUnmounted en Vue 3)
-session.free(); // IMPORTANT : Libère la mémoire WASM pour éviter les fuites !
+session.free(); // Recommandé : Libère la mémoire WASM immédiatement
 ```
 
-> ⚠️ **IMPORTANT : Gestion de la mémoire en WASM**  
-> Les objets générés par WebAssembly (`WasmScanSession` ou `WasmScanner`) allouent de la mémoire côté Rust. Cette mémoire n'est pas libérée automatiquement par le Garbage Collector de JavaScript. Vous **devez absolument** appeler la méthode `.free()` lorsque vous n'en avez plus besoin, sous peine de provoquer une fuite de mémoire (memory leak) qui fera crasher l'onglet du navigateur à terme.
+> 🛡️ **Gestion de la mémoire en WASM**  
+> Les objets générés par WebAssembly (`WasmScanSession` ou `WasmScanner`) allouent de la mémoire côté Rust. Grâce au flag `--weak-refs` inclus à la compilation, le Garbage Collector de JavaScript finira par libérer cette mémoire automatiquement via le `FinalizationRegistry`.  
+> Cependant, le Garbage Collector étant non-déterministe, il est **fortement recommandé** d'appeler manuellement la méthode `.free()` lorsque vous avez fini (par exemple, à l'arrêt de la caméra) afin de libérer immédiatement les buffers d'images, évitant ainsi les pics de consommation de RAM temporaires. Le `--weak-refs` agit comme un excellent filet de sécurité.
 
 Une fois publié (ou lié localement avec `npm link` depuis le dossier `pkg`), vous pourrez l'importer de manière transparente dans n'importe quel projet JavaScript/TypeScript côté client pour avoir un décodage ultra-rapide directement dans le navigateur !
 

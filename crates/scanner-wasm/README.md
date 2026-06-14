@@ -46,7 +46,7 @@ if (results.length > 0) {
   console.log('Found barcode:', results[0].text);
 }
 
-// 4. IMPORTANT: Free memory to prevent memory leaks!
+// 4. Recommended: Free memory for immediate release
 scanner.free();
 ```
 
@@ -75,14 +75,14 @@ function onAnimationFrame() {
 }
 
 // When you stop the camera:
-// session.free(); // IMPORTANT: Free memory when the session is no longer needed
+// session.free(); // Recommended: Free memory immediately when the session is no longer needed
 ```
 
-## ⚠️ Memory Management
+## 🛡️ Memory Management
 
-WebAssembly does not have automatic garbage collection for Rust objects. Whenever you create a new `WasmScanner` or `WasmScanSession`, memory is allocated inside the WebAssembly heap.
+WebAssembly does not have automatic garbage collection for Rust objects. However, because this package is compiled with the `--weak-refs` flag, the generated bindings use the JavaScript `FinalizationRegistry` to automatically call the Rust `.free()` method when the JS wrapper object is garbage collected.
 
-**You must manually call `.free()`** on these objects when you are done using them (e.g., when a component unmounts or when a scan is finished). Failing to do so will result in a **memory leak** that will eventually crash the browser tab.
+While this acts as a great safety net against memory leaks, the JavaScript garbage collector is non-deterministic. For objects that allocate large buffers (like `WasmScanSession` handling camera frames), it is **highly recommended to manually call `.free()`** as soon as you are done with them (e.g. when stopping the camera). This ensures the memory is released immediately rather than waiting for the GC, avoiding temporary memory spikes in the browser.
 
 ## Supported Formats
 

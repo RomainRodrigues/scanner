@@ -106,7 +106,7 @@ const frameResults = session.processFrame(rgbaBuffer, width, height, PixelFormat
 
 ```bash
 cd crates/scanner-wasm
-wasm-pack build --target web --out-dir pkg --release
+wasm-pack build --target web --out-dir pkg --release --weak-refs
 ```
 
 ```javascript
@@ -119,7 +119,7 @@ const session = new WasmScanSession({ roi: { x: 0.15, y: 0.15, width: 0.7, heigh
 // In your requestAnimationFrame loop:
 // const results = session.processFrameRgba(imageData.data, width, height);
 
-// IMPORTANT: Free memory when stopping the camera to prevent memory leaks
+// Recommended: Free memory when stopping the camera for immediate release
 session.free(); 
 
 // --- Static image ---
@@ -127,6 +127,9 @@ const scanner = new WasmScanner();
 // const results = scanner.scanRgba(imageData.data, width, height);
 scanner.free(); // Free memory when done
 ```
+
+> 🛡️ **WASM Memory Management**
+> The WASM module is built with the `--weak-refs` flag, so the JavaScript `FinalizationRegistry` acts as a safety net to automatically free Rust memory when the JS wrapper is garbage collected. However, because GC is non-deterministic, it is **highly recommended** to manually call `.free()` when you are done (e.g. stopping the camera) to immediately release large image buffers and prevent temporary memory spikes.
 
 > **Format strings for WASM/JSON** (serde `snake_case`):
 > `qr_code`, `micro_qr`, `data_matrix`, `aztec`, `pdf417`,
