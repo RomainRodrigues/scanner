@@ -38,8 +38,9 @@ impl Roi {
 
     /// A centered ROI with the given size fraction.
     ///
-    /// `size` must be in (0.0, 1.0]. E.g. 0.6 creates a centered 60%×60% ROI.
+    /// `size` is clamped to (0.0, 1.0]. E.g. 0.6 creates a centered 60%×60% ROI.
     pub fn centered(size: f32) -> Self {
+        let size = size.clamp(0.01, 1.0);
         let offset = (1.0 - size) / 2.0;
         Self {
             x: offset,
@@ -50,11 +51,22 @@ impl Roi {
     }
 
     /// Convert ROI fractions to pixel coordinates for a given image size.
+    ///
+    /// All outputs are guaranteed to fit within `[0, img_width)` and `[0, img_height)`.
     pub fn to_pixels(&self, img_width: u32, img_height: u32) -> (u32, u32, u32, u32) {
-        let x = (self.x * img_width as f32) as u32;
-        let y = (self.y * img_height as f32) as u32;
-        let w = (self.width * img_width as f32).min((img_width - x) as f32) as u32;
-        let h = (self.height * img_height as f32).min((img_height - y) as f32) as u32;
+        // Clamp fractions to valid range before converting
+        let x_frac = self.x.clamp(0.0, 1.0);
+        let y_frac = self.y.clamp(0.0, 1.0);
+        let w_frac = self.width.clamp(0.0, 1.0);
+        let h_frac = self.height.clamp(0.0, 1.0);
+
+        let x = (x_frac * img_width as f32) as u32;
+        let y = (y_frac * img_height as f32) as u32;
+        // Ensure w/h don't extend beyond the image boundary
+        let w = (w_frac * img_width as f32)
+            .min((img_width.saturating_sub(x)) as f32) as u32;
+        let h = (h_frac * img_height as f32)
+            .min((img_height.saturating_sub(y)) as f32) as u32;
         (x, y, w, h)
     }
 }
@@ -90,7 +102,11 @@ pub struct ScannerConfig {
 
     /// Maximum number of barcodes to detect per frame.
     ///
-    /// Default: `1` (set higher for multi-code images)
+    /// **Note**: The current backend (rxing) decodes one barcode per call.
+    /// `max_results > 1` is reserved for future multi-barcode support.
+    /// Setting it to 1 (the default) is recommended.
+    ///
+    /// Default: `1`
     pub max_results: usize,
 
     /// Region of Interest — limits scanning to a sub-area of the frame.
