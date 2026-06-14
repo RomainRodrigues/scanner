@@ -49,6 +49,7 @@ async function loadWasm(wasmPath = './scanner_wasm_bg.wasm') {
  * @typedef {Object} BrowserScannerOptions
  * @property {function(ScanResult): void} onDetect - Called when a barcode is detected.
  * @property {function(Error): void} [onError] - Called on unrecoverable errors.
+ * @property {string[]} [formats] - Barcode formats to detect (e.g. ['qr_code', 'code_128']). Default: all.
  * @property {number} [roi=0.7] - Fraction of frame to scan (0.1–1.0). Default: 0.7.
  * @property {number} [cooldownMs=2000] - Cooldown before same code reported again (ms).
  * @property {boolean} [preprocessing=true] - Enable adaptive preprocessing.
@@ -106,6 +107,7 @@ export class BrowserScanner {
     // Setup scan session
     const roiMargin = (1 - this.#opts.roi) / 2;
     this.#session = new WasmScanSession({
+      formats: this.#opts.formats ?? undefined,
       preprocessing: this.#opts.preprocessing,
       tryInvert: true,
       roi: {

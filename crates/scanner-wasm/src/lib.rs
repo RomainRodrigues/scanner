@@ -26,11 +26,20 @@
 //! }
 //! ```
 
+#![deny(clippy::all)]
 use scanner_core::config::Roi as CoreRoi;
 use scanner_core::{
     PixelFormat, ScanSession as CoreScanSession, Scanner as CoreScanner, ScannerConfig,
 };
 use wasm_bindgen::prelude::*;
+
+// Initialise the panic hook as soon as the WASM module is loaded.
+// This ensures Rust panics are reported to the browser console even if no
+// WasmScanner or WasmScanSession has been constructed yet.
+#[wasm_bindgen(start)]
+pub fn wasm_init() {
+    console_error_panic_hook::set_once();
+}
 
 // ── JS-facing result type ─────────────────────────────────────────────────────
 
@@ -168,13 +177,14 @@ impl WasmScanner {
     /// @param {number} height - Frame height in pixels.
     /// @returns {ScanResult[]} Array of scan results (empty if not found).
     #[wasm_bindgen(js_name = scanRgba)]
-    pub fn scan_rgba(&self, data: &[u8], width: u32, height: u32) -> Vec<ScanResult> {
+    pub fn scan_rgba(&self, data: &[u8], width: u32, height: u32) -> Result<Vec<ScanResult>, JsValue> {
         match self
             .inner
             .scan_frame(data, width, height, PixelFormat::Rgba)
         {
-            Ok(results) => results.into_iter().map(ScanResult::from).collect(),
-            Err(_) => vec![],
+            Ok(results) => Ok(results.into_iter().map(ScanResult::from).collect()),
+            Err(scanner_core::ScanError::NotFound) => Ok(vec![]),
+            Err(e) => Err(JsValue::from_str(&format!("Scanner error: {e}"))),
         }
     }
 
@@ -184,10 +194,11 @@ impl WasmScanner {
     /// @param {number} width - Frame width.
     /// @param {number} height - Frame height.
     #[wasm_bindgen(js_name = scanRgb)]
-    pub fn scan_rgb(&self, data: &[u8], width: u32, height: u32) -> Vec<ScanResult> {
+    pub fn scan_rgb(&self, data: &[u8], width: u32, height: u32) -> Result<Vec<ScanResult>, JsValue> {
         match self.inner.scan_frame(data, width, height, PixelFormat::Rgb) {
-            Ok(results) => results.into_iter().map(ScanResult::from).collect(),
-            Err(_) => vec![],
+            Ok(results) => Ok(results.into_iter().map(ScanResult::from).collect()),
+            Err(scanner_core::ScanError::NotFound) => Ok(vec![]),
+            Err(e) => Err(JsValue::from_str(&format!("Scanner error: {e}"))),
         }
     }
 
@@ -197,13 +208,14 @@ impl WasmScanner {
     /// @param {number} width - Frame width.
     /// @param {number} height - Frame height.
     #[wasm_bindgen(js_name = scanLuma)]
-    pub fn scan_luma(&self, data: &[u8], width: u32, height: u32) -> Vec<ScanResult> {
+    pub fn scan_luma(&self, data: &[u8], width: u32, height: u32) -> Result<Vec<ScanResult>, JsValue> {
         match self
             .inner
             .scan_frame(data, width, height, PixelFormat::Luma)
         {
-            Ok(results) => results.into_iter().map(ScanResult::from).collect(),
-            Err(_) => vec![],
+            Ok(results) => Ok(results.into_iter().map(ScanResult::from).collect()),
+            Err(scanner_core::ScanError::NotFound) => Ok(vec![]),
+            Err(e) => Err(JsValue::from_str(&format!("Scanner error: {e}"))),
         }
     }
 }
@@ -242,7 +254,6 @@ impl WasmScanSession {
     /// @param {number} [config.dedupCooldownMs=2000] - Dedup cooldown in milliseconds.
     #[wasm_bindgen(constructor)]
     pub fn new(config: JsValue) -> WasmScanSession {
-        console_error_panic_hook_init();
         let core_config = js_config_to_core(config, true);
         WasmScanSession {
             inner: CoreScanSession::new(core_config),
@@ -330,7 +341,5 @@ impl WasmScanSession {
 }
 
 // ── Panic hook ────────────────────────────────────────────────────────────────
-
-fn console_error_panic_hook_init() {
-    console_error_panic_hook::set_once();
-}
+// Initialisation happens automatically via #[wasm_bindgen(start)] on `wasm_init`.
+// No manual call needed.
