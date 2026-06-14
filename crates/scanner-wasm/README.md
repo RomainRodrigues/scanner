@@ -1,5 +1,7 @@
 # Scanner WASM
 
+⚠️ **Work in Progress**: This package is under active development. APIs and configurations are experimental and subject to change.
+
 High-performance QR code and barcode scanner for the browser, powered by Rust and WebAssembly.
 
 ## Features
@@ -21,9 +23,7 @@ npm install @gueshbzh-perso/scanner-wasm
 ### 1. Static Image Scanning
 
 ```javascript
-import init, { WasmScanner } from '@gueshbzh-perso/scanner-wasm';
-
-await init(); // Initialize the WASM module
+import { WasmScanner } from '@gueshbzh-perso/scanner-wasm';
 
 const scanner = new WasmScanner({
   formats: ["qr_code", "code_128"],
@@ -44,9 +44,7 @@ if (results.length > 0) {
 For real-time streams, `WasmScanSession` automatically manages performance.
 
 ```javascript
-import init, { WasmScanSession } from '@gueshbzh-perso/scanner-wasm';
-
-await init();
+import { WasmScanSession } from '@gueshbzh-perso/scanner-wasm';
 
 // Define a Region of Interest (e.g., center 70% of the screen)
 const session = new WasmScanSession({

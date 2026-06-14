@@ -3,6 +3,8 @@
 [![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
+⚠️ **Work in Progress**: This project is under active development. APIs and configurations are experimental and subject to change.
+
 A robust, high-performance barcode and QR code scanning library written in pure Rust, designed for:
 
 - 📷 **Real-time camera stream scanning** (not just static images)
