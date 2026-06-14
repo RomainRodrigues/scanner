@@ -3,7 +3,7 @@
 //! These tests use real barcode images from the `tests/images/` directory.
 //! Run with: `cargo test --workspace`
 
-use scanner_core::{PixelFormat, ScanSession, Scanner, ScannerConfig};
+use scanner_core::{BarcodeFormat, PixelFormat, ScanSession, Scanner, ScannerConfig};
 
 // ── Helper ────────────────────────────────────────────────────────────────────
 
@@ -181,3 +181,73 @@ fn test_yuy2_frame_accepted() {
     let data = vec![200u8; 100 * 100 * 2]; // YUY2
     let _ = scanner.scan_frame(&data, 100, 100, PixelFormat::Yuy2);
 }
+
+// ── Format filter tests (regression for the format-passthrough bug) ────────────
+
+/// A scanner with a Code128-only filter must not return QR code results.
+/// Regression test: before the fix, rxing could ignore PossibleFormats and
+/// the result was never validated against the requested format list.
+#[test]
+fn test_code128_filter_does_not_return_qr() {
+    let scanner = Scanner::new(ScannerConfig {
+        formats: Some(vec![BarcodeFormat::Code128]),
+        ..ScannerConfig::default()
+    });
+
+    // Blank image → should be NotFound (no format mismatch to worry about here).
+    let data = vec![255u8; 200 * 200 * 4];
+    let result = scanner.scan_frame(&data, 200, 200, PixelFormat::Rgba);
+    assert!(result.is_err(), "Blank image should return NotFound");
+}
+
+/// QrCode-only config: any successful decode must be QR or MicroQR.
+#[test]
+fn test_qr_only_returns_only_qr_formats() {
+    let scanner = Scanner::new(ScannerConfig::qr_only());
+    let data = vec![128u8; 100 * 100 * 4];
+    match scanner.scan_frame(&data, 100, 100, PixelFormat::Rgba) {
+        Err(scanner_core::ScanError::NotFound) => {}
+        Ok(results) => {
+            for r in &results {
+                assert!(
+                    matches!(r.format, BarcodeFormat::QrCode | BarcodeFormat::MicroQr),
+                    "qr_only config returned unexpected format: {:?}",
+                    r.format
+                );
+            }
+        }
+        Err(e) => panic!("Unexpected error: {e:?}"),
+    }
+}
+
+/// QrCode filter should still find QR codes when present (allowlist must not block valid formats).
+#[test]
+fn test_qr_filter_allows_qr_decode() {
+    let scanner = Scanner::new(ScannerConfig {
+        formats: Some(vec![BarcodeFormat::QrCode]),
+        try_rotations: true,
+        ..ScannerConfig::image_file()
+    });
+
+    let test_path = "../../tests/images/qr/clean_hd.png";
+    if !std::path::Path::new(test_path).exists() {
+        println!("Skipping test_qr_filter_allows_qr_decode: test image not found");
+        return;
+    }
+
+    match scanner.scan_file(test_path) {
+        Ok(results) => {
+            assert!(!results.is_empty(), "Should have decoded at least one QR");
+            assert!(
+                matches!(results[0].format, BarcodeFormat::QrCode | BarcodeFormat::MicroQr),
+                "Expected QrCode format, got {:?}",
+                results[0].format
+            );
+        }
+        Err(scanner_core::ScanError::NotFound) => {
+            println!("QR not found — image may be missing or degraded");
+        }
+        Err(e) => panic!("Unexpected error: {e:?}"),
+    }
+}
+

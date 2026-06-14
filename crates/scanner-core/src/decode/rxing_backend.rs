@@ -21,18 +21,28 @@ use rxing::{
 /// Wraps rxing's MultiFormatReader with our configuration.
 pub struct RxingDecoder {
     hints: DecodeHints,
+    /// Formats the caller explicitly requested. When `Some`, any decoded result
+    /// whose format is not in this list is discarded (post-decode filter).
+    ///
+    /// This is necessary because rxing's `PossibleFormats` hint is not always
+    /// strictly respected, especially when `TryHarder = true`.
+    allowed_formats: Option<Vec<BarcodeFormat>>,
 }
 
 impl RxingDecoder {
     /// Create a new decoder from a `ScannerConfig`.
     pub fn new(config: &ScannerConfig) -> Self {
+        let allowed_formats = config.formats.clone();
         let hints = build_hints(config);
-        Self { hints }
+        Self { hints, allowed_formats }
     }
 
     /// Attempt to decode one or more barcodes from a grayscale image.
     ///
     /// Returns `Ok(vec)` with at least one result, or `Err(ScanError::NotFound)`.
+    ///
+    /// If `allowed_formats` was configured, results with an unexpected format are
+    /// rejected — even if rxing decoded something. This is the authoritative filter.
     pub fn decode(&self, img: &GrayImage) -> Result<Vec<ScanResult>, ScanError> {
         let (width, height) = img.dimensions();
         let luma_data: Vec<u8> = img.pixels().map(|p| p[0]).collect();
@@ -48,6 +58,17 @@ impl RxingDecoder {
         match reader.decode_with_hints(&mut bitmap, &hints) {
             Ok(result) => {
                 let scan = ScanResult::from_rxing(&result);
+
+                // Post-decode format filter: rxing's PossibleFormats hint is not
+                // strictly enforced (especially with TryHarder). We apply an
+                // authoritative check here to guarantee callers only receive the
+                // formats they requested.
+                if let Some(ref allowed) = self.allowed_formats {
+                    if !allowed.contains(&scan.format) {
+                        return Err(ScanError::NotFound);
+                    }
+                }
+
                 Ok(vec![scan])
             }
             Err(Exceptions::NotFoundException(_)) => Err(ScanError::NotFound),
@@ -66,7 +87,8 @@ impl RxingDecoder {
 fn build_hints(config: &ScannerConfig) -> DecodeHints {
     let mut hints = DecodeHints::default();
 
-    // Map our BarcodeFormat enum to rxing formats
+    // Pass requested formats as a hint to rxing (best-effort — not strictly enforced).
+    // The authoritative filter is applied post-decode in `RxingDecoder::decode`.
     if let Some(formats) = &config.formats {
         let rxing_formats: std::collections::HashSet<rxing::BarcodeFormat> =
             formats.iter().filter_map(format_to_rxing).collect();
@@ -76,15 +98,21 @@ fn build_hints(config: &ScannerConfig) -> DecodeHints {
         }
     }
 
-    // Try harder: enables multi-scale and rotation attempts within rxing itself
-    hints.TryHarder = Some(true);
+    // TryHarder enables multi-scale and rotation attempts inside rxing.
+    // Disable it when the caller requests a strict format filter: TryHarder can
+    // cause rxing to ignore PossibleFormats and try all readers anyway.
+    hints.TryHarder = Some(config.formats.is_none());
 
     hints
 }
 
 /// Convert our `BarcodeFormat` to an rxing `BarcodeFormat`.
+///
+/// Returns `None` for formats that have no direct rxing equivalent
+/// (they will be excluded from the `PossibleFormats` hint).
 fn format_to_rxing(f: &BarcodeFormat) -> Option<rxing::BarcodeFormat> {
     match f {
+        // MicroQR is not a distinct rxing format; it falls under QR_CODE.
         BarcodeFormat::QrCode | BarcodeFormat::MicroQr => Some(rxing::BarcodeFormat::QR_CODE),
         BarcodeFormat::DataMatrix => Some(rxing::BarcodeFormat::DATA_MATRIX),
         BarcodeFormat::Aztec => Some(rxing::BarcodeFormat::AZTEC),
@@ -98,6 +126,7 @@ fn format_to_rxing(f: &BarcodeFormat) -> Option<rxing::BarcodeFormat> {
         BarcodeFormat::UpcE => Some(rxing::BarcodeFormat::UPC_E),
         BarcodeFormat::Itf => Some(rxing::BarcodeFormat::ITF),
         BarcodeFormat::Codabar => Some(rxing::BarcodeFormat::CODABAR),
+        // Unknown has no rxing equivalent — exclude from hints.
         BarcodeFormat::Unknown => None,
     }
 }
