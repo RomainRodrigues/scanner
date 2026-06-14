@@ -65,6 +65,34 @@ impl std::fmt::Display for BarcodeFormat {
     }
 }
 
+impl std::str::FromStr for BarcodeFormat {
+    type Err = ();
+
+    /// Parse a `BarcodeFormat` from a string.
+    ///
+    /// Accepts both the serde `snake_case` form (e.g. `"qr_code"`, `"code_128"`) and
+    /// the human-readable form (e.g. `"QR Code"`, `"Code 128"`).
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().replace([' ', '-'], "_").as_str() {
+            "qr_code" | "qrcode" | "qr" => Ok(BarcodeFormat::QrCode),
+            "micro_qr" | "microqr" => Ok(BarcodeFormat::MicroQr),
+            "data_matrix" | "datamatrix" => Ok(BarcodeFormat::DataMatrix),
+            "aztec" => Ok(BarcodeFormat::Aztec),
+            "pdf417" | "pdf_417" => Ok(BarcodeFormat::Pdf417),
+            "code_128" | "code128" => Ok(BarcodeFormat::Code128),
+            "code_39" | "code39" => Ok(BarcodeFormat::Code39),
+            "code_93" | "code93" => Ok(BarcodeFormat::Code93),
+            "ean_13" | "ean13" => Ok(BarcodeFormat::Ean13),
+            "ean_8" | "ean8" => Ok(BarcodeFormat::Ean8),
+            "upc_a" | "upca" => Ok(BarcodeFormat::UpcA),
+            "upc_e" | "upce" => Ok(BarcodeFormat::UpcE),
+            "itf" => Ok(BarcodeFormat::Itf),
+            "codabar" => Ok(BarcodeFormat::Codabar),
+            _ => Ok(BarcodeFormat::Unknown),
+        }
+    }
+}
+
 impl From<rxing::BarcodeFormat> for BarcodeFormat {
     fn from(f: rxing::BarcodeFormat) -> Self {
         match f {
@@ -103,9 +131,16 @@ pub struct ScanResult {
     pub points: Vec<Point>,
 
     /// Confidence score in range [0.0, 1.0].
+    ///
+    /// **Note**: rxing does not expose a native confidence value. This field is
+    /// always `1.0` for successful decodes. Treat it as a boolean (found/not found)
+    /// rather than a probability.
     pub confidence: f32,
 
     /// Rotation angle of the detected barcode in degrees.
+    ///
+    /// **Note**: Currently always `0.0`. Orientation detection is not yet
+    /// implemented — do not rely on this value.
     pub orientation: f32,
 
     /// Unix timestamp (milliseconds) when this scan occurred.

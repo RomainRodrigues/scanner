@@ -1,9 +1,11 @@
 //! Frame abstraction: raw pixel data from a camera or image source.
 
 use crate::error::ScanError;
+use serde::{Deserialize, Serialize};
 
 /// The pixel format of a raw frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum PixelFormat {
     /// 4 bytes per pixel: Red, Green, Blue, Alpha
     /// Used by browser `ImageData` and most image libraries.
