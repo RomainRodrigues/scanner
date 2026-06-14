@@ -7,7 +7,7 @@
 //! Target: keep scanning latency below a budget (e.g. 16ms for 60 FPS UI).
 
 use std::collections::VecDeque;
-use web_time::{Duration, Instant};
+use web_time::Duration;
 
 /// Adaptive frame throttle.
 ///
@@ -94,23 +94,6 @@ impl AdaptiveThrottle {
         self.history.clear();
         self.skip_interval = 1;
         self.frame_counter = 0;
-    }
-}
-
-/// Simple timing guard: records a scan's start time and reports on drop.
-pub struct ScanTimer {
-    start: Instant,
-}
-
-impl ScanTimer {
-    pub fn start() -> Self {
-        Self {
-            start: Instant::now(),
-        }
-    }
-
-    pub fn elapsed(&self) -> Duration {
-        self.start.elapsed()
     }
 }
 
