@@ -45,6 +45,9 @@ const results = scanner.scanRgba(imageData.data, imageData.width, imageData.heig
 if (results.length > 0) {
   console.log('Found barcode:', results[0].text);
 }
+
+// 4. IMPORTANT: Free memory to prevent memory leaks!
+scanner.free();
 ```
 
 ### Real-Time Camera Stream
@@ -70,7 +73,16 @@ function onAnimationFrame() {
   
   requestAnimationFrame(onAnimationFrame);
 }
+
+// When you stop the camera:
+// session.free(); // IMPORTANT: Free memory when the session is no longer needed
 ```
+
+## ⚠️ Memory Management
+
+WebAssembly does not have automatic garbage collection for Rust objects. Whenever you create a new `WasmScanner` or `WasmScanSession`, memory is allocated inside the WebAssembly heap.
+
+**You must manually call `.free()`** on these objects when you are done using them (e.g., when a component unmounts or when a scan is finished). Failing to do so will result in a **memory leak** that will eventually crash the browser tab.
 
 ## Supported Formats
 
