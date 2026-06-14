@@ -115,13 +115,18 @@ import { BrowserScanner, scanImage } from './scanner-web.js';
 // Camera stream with auto requestAnimationFrame loop
 const scanner = new BrowserScanner({
   onDetect: (result) => console.log('Scanned:', result.text),
-  roi: 0.7
+  roi: 0.7,
+  formats: ['qr_code', 'code_128'], // optional — default: all formats
 });
 await scanner.start(document.querySelector('video'));
 
 // Static image
 const results = await scanImage(document.querySelector('img'));
 ```
+
+> **Format strings for WASM/JSON** (serde `snake_case`):
+> `qr_code`, `micro_qr`, `data_matrix`, `aztec`, `pdf417`,
+> `code128`, `code39`, `code93`, `ean13`, `ean8`, `upc_a`, `upc_e`, `itf`, `codabar`
 
 ## Performance
 
@@ -163,7 +168,7 @@ A 60% ROI reduces the number of pixels processed by ~64%.
 cargo test --workspace
 ```
 
-Place test images in `tests/images/` following the structure documented in the [implementation plan](../implementation_plan.md).
+Place test images in `tests/images/` following the structure in the `tests/` directory.
 
 ## Roadmap
 

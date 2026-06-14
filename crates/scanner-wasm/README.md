@@ -18,38 +18,43 @@ High-performance QR code and barcode scanner for the browser, powered by Rust an
 npm install @gueshbzh-perso/scanner-wasm
 ```
 
-## Usage
+## Usage (Vite / Nuxt 3 / Modern Bundlers)
 
-### 1. Static Image Scanning
+By default, this package is built with `--target web`. This means it exposes a standard ES Module that needs to be initialized asynchronously before use.
+
+If you are using **Vite** (or **Nuxt 3**), you can import the WASM file as a URL and pass it to the init function:
 
 ```javascript
-import { WasmScanner } from '@gueshbzh-perso/scanner-wasm';
+import init, { WasmScanner, WasmScanSession } from '@gueshbzh-perso/scanner-wasm';
+// The `?url` suffix tells Vite to treat the WASM file as an asset URL
+import wasmUrl from '@gueshbzh-perso/scanner-wasm/scanner_wasm_bg.wasm?url';
 
+// 1. Initialize the WebAssembly module (do this once)
+await init(wasmUrl);
+
+// 2. Initialize the scanner
 const scanner = new WasmScanner({
   formats: ["qr_code", "code_128"],
   preprocessing: true,
   tryInvert: true
 });
 
-// data is an RGBA Uint8ClampedArray (e.g. from ctx.getImageData)
-const results = scanner.scanRgba(data, width, height);
+// 3. Scan a static image (data is an RGBA Uint8ClampedArray)
+const results = scanner.scanRgba(imageData.data, imageData.width, imageData.height);
 
 if (results.length > 0) {
   console.log('Found barcode:', results[0].text);
 }
 ```
 
-### 2. Real-Time Camera Stream
+### Real-Time Camera Stream
 
-For real-time streams, `WasmScanSession` automatically manages performance.
+For real-time streams (like a webcam), `WasmScanSession` automatically manages performance and frame throttling.
 
 ```javascript
-import { WasmScanSession } from '@gueshbzh-perso/scanner-wasm';
-
 // Define a Region of Interest (e.g., center 70% of the screen)
 const session = new WasmScanSession({
   preprocessing: true,
-  tryInvert: true,
   roi: { x: 0.15, y: 0.15, width: 0.7, height: 0.7 },
   dedupCooldownMs: 2000
 });
@@ -66,6 +71,13 @@ function onAnimationFrame() {
   requestAnimationFrame(onAnimationFrame);
 }
 ```
+
+## Supported Formats
+
+You can filter which barcodes to detect using the `formats` array in the configuration. The supported formats in `snake_case` are:
+
+- **2D**: `qr_code`, `micro_qr`, `data_matrix`, `aztec`, `pdf417`
+- **1D**: `code_128`, `code_39`, `code_93`, `ean_13`, `ean_8`, `upc_a`, `upc_e`, `itf`, `codabar`
 
 ## Configuration Options
 

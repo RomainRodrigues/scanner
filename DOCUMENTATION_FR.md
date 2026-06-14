@@ -101,7 +101,7 @@ Si tu veux mettre ton scanner sur un site web frontend (React, Vue, ou JS vanill
 
 ```bash
 cd crates/scanner-wasm
-# Construire le code WebAssembly (WASM) optimisé pour le web
+# Construire le code WebAssembly (WASM) en module ES standard (recommandé pour Vite / Nuxt 3)
 wasm-pack build --target web --out-dir pkg --release
 ```
 
@@ -149,23 +149,37 @@ wasm-pack build --target web --out-dir pkg --release
 ```
 Copiez simplement l'intégralité du contenu du dossier `crates/scanner-wasm/pkg` dans le dossier `public` ou `assets` de votre frontend. Assurez-vous que votre serveur web sert le fichier `.wasm` avec le bon Content-Type (`application/wasm`).
 
-**Option B : Publier sur NPM sous votre organisation (Pour React, Vue, Vite, Webpack...)**
-Si vous souhaitez distribuer votre moteur WASM pour qu'il soit installable via `npm install` (comme `@gueshbzh-perso/scanner-wasm`) dans d'autres projets :
+**Option B : Publier sur NPM (Pour Nuxt, Vue, React, Vite, Webpack...)**
+Si vous souhaitez distribuer votre moteur WASM pour qu'il soit installable via `npm install` (comme `@gueshbzh-perso/scanner-wasm`) :
 
-1. **Construire le paquet WASM avec votre scope (organisation) :**
+1. **Choisir le bon "target" selon votre framework :**
+   - **Vite / Nuxt 3** : Le standard moderne est `--target web`. Le WASM est généré en tant que module ES pur, et s'initialise asynchrone (`await init(wasmUrl)`). Vite gère très bien l'import du `.wasm` en tant qu'URL.
+   - **Webpack / Nuxt 2** : Vous pouvez utiliser `--target bundler`. Webpack fera sa magie pour importer et initialiser le WASM de manière transparente.
+
+2. **Construire le paquet WASM avec votre scope (organisation) :**
    ```bash
    cd crates/scanner-wasm
-   wasm-pack build --scope gueshbzh-perso --target bundler --out-dir pkg --release
+   # Pour Vite / Nuxt 3
+   wasm-pack build --scope gueshbzh-perso --target web --out-dir pkg --release
    ```
-   *Note : Le flag `--scope gueshbzh-perso` indique à `wasm-pack` de nommer automatiquement le package `@gueshbzh-perso/scanner-wasm` dans le fichier `package.json` généré.*
 
-2. **Publier sur le registre NPM :**
-   Les packages avec un scope (commençant par `@`) sont publiés en privé par défaut par npm. Pour le rendre public gratuitement et gérer le double facteur (2FA/OTP), placez-vous dans le dossier de build `pkg` et publiez avec les options d'accès :
+3. **Publier sur le registre NPM :**
+   Placez-vous dans le dossier de build `pkg` et publiez avec accès public :
    ```bash
    cd pkg
    npm publish --access public
-   # (Saisissez ensuite votre code OTP si demandé par npm)
    ```
+
+Une fois publié, vous pourrez l'importer dans votre application Nuxt 3 :
+
+```javascript
+import init, { WasmScanSession } from '@gueshbzh-perso/scanner-wasm';
+import wasmUrl from '@gueshbzh-perso/scanner-wasm/scanner_wasm_bg.wasm?url'; // Astuce Vite
+
+// Au montage du composant (ex: onMounted en Vue 3)
+await init(wasmUrl);
+const session = new WasmScanSession({ ... });
+```
 
 Une fois publié (ou lié localement avec `npm link` depuis le dossier `pkg`), vous pourrez l'importer de manière transparente dans n'importe quel projet JavaScript/TypeScript côté client pour avoir un décodage ultra-rapide directement dans le navigateur !
 
