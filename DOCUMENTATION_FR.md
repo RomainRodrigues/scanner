@@ -51,7 +51,8 @@ les traitements coûteux dans le temps. C'est ce qui manquait à l'ancienne vers
 | Points des codes faux avec une ROI (relatifs au recadrage) | Points toujours en coordonnées de la frame vidéo ; l'overlay les dessine au bon endroit |
 | `format` renvoyé `"QR Code"` alors qu'on configure `"qr_code"` | Même orthographe en entrée et en sortie |
 | `maxResults > 1` ignoré | Vrai mode multi-codes (lecteur multiple de rxing) |
-| Faux positifs possibles sur Code 39 / ITF / Codabar (pas de checksum) | **Confirmation multi-frames** pour ces formats (2 lectures concordantes par défaut) |
+| Faux positifs 1D (surtout **UPC-E**) en visant une scène sans code | **Vérification de la zone de silence** (marge blanche obligatoire autour d'un vrai code-barres, que rxing ne contrôle presque pas pour UPC/EAN) + **confirmation multi-frames** : 2 lectures concordantes pour les codes 1D, 3 pour les formats fragiles (UPC-E, EAN-8, Code 39/93, ITF, Codabar), 1 pour les codes 2D |
+| Résultats `Unknown` (RSS, Telepen… non exposés) remontés quand aucun format n'est filtré | Liste de formats toujours explicite côté rxing, `Unknown` jamais renvoyé |
 | `confidence` / `orientation` toujours à 1.0 / 0.0 | Supprimés (ils trompaient l'utilisateur) |
 | Toutes les features par défaut de rxing (encodeurs, 15 codecs image, `chrono-tz`…) | Uniquement les décodeurs nécessaires |
 | Pas de gestion caméra / UI : à recoder par chaque client | `BarcodeReader` : caméra arrière, mémoire de la caméra choisie, lampe torche, zoom, autofocus continu, changement de caméra, masque ROI, surlignage des codes, bip + vibration |

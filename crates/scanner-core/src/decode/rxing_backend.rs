@@ -115,8 +115,8 @@ impl RxingDecoder {
             // Post-decode format filter: rxing's PossibleFormats hint is not
             // strictly enforced, so this is the authoritative check.
             .filter(|r| match &self.allowed_formats {
-                Some(allowed) => allowed.contains(&r.format),
-                None => true,
+                Some(allowed) if !allowed.is_empty() => allowed.contains(&r.format),
+                _ => r.format != BarcodeFormat::Unknown,
             })
             .take(self.max_results)
             .collect();
@@ -143,14 +143,23 @@ fn map_error(e: Exceptions) -> ScanError {
 fn build_hints(config: &ScannerConfig) -> DecodeHints {
     let mut hints = DecodeHints::default();
 
-    if let Some(formats) = &config.formats {
-        let rxing_formats: std::collections::HashSet<rxing::BarcodeFormat> =
-            formats.iter().filter_map(format_to_rxing).collect();
-
-        if !rxing_formats.is_empty() {
-            hints.PossibleFormats = Some(rxing_formats);
-        }
-    }
+    // Always pass an explicit list: without it rxing also runs readers for
+    // symbologies we do not expose (RSS, Telepen, MaxiCode…), which only add
+    // cost and false positives.
+    let requested = config
+        .formats
+        .as_deref()
+        .unwrap_or(&BarcodeFormat::SUPPORTED);
+    let rxing_formats: std::collections::HashSet<rxing::BarcodeFormat> =
+        requested.iter().filter_map(format_to_rxing).collect();
+    hints.PossibleFormats = Some(if rxing_formats.is_empty() {
+        BarcodeFormat::SUPPORTED
+            .iter()
+            .filter_map(format_to_rxing)
+            .collect()
+    } else {
+        rxing_formats
+    });
 
     hints
 }

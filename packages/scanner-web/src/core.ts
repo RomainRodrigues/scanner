@@ -24,8 +24,8 @@ export function defaultWasmUrl(simd = simdSupported()): URL {
 
 /** Keep only the engine options (drops URLs and other non-cloneable values). */
 export function pickEngineOptions(o: EngineOptions): EngineOptions {
-  const { formats, preprocessing, tryInvert, maxResults, duplicateIntervalMs, weakFormatConfirmations } = o;
-  return { formats, preprocessing, tryInvert, maxResults, duplicateIntervalMs, weakFormatConfirmations };
+  const { formats, preprocessing, tryInvert, maxResults, duplicateIntervalMs, linearConfirmations } = o;
+  return { formats, preprocessing, tryInvert, maxResults, duplicateIntervalMs, linearConfirmations };
 }
 
 export function toWasmConfig(o: EngineOptions, extra: Partial<WasmScanConfig> = {}): WasmScanConfig {
@@ -35,7 +35,7 @@ export function toWasmConfig(o: EngineOptions, extra: Partial<WasmScanConfig> = 
   if (o.tryInvert !== undefined) cfg.tryInvert = o.tryInvert;
   if (o.maxResults !== undefined) cfg.maxResults = o.maxResults;
   cfg.dedupCooldownMs = o.duplicateIntervalMs ?? 1500;
-  if (o.weakFormatConfirmations !== undefined) cfg.weakFormatConfirmations = o.weakFormatConfirmations;
+  if (o.linearConfirmations !== undefined) cfg.linearConfirmations = o.linearConfirmations;
   return cfg;
 }
 

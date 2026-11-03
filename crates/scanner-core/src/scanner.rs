@@ -4,7 +4,7 @@
 //! strategies but spreads the expensive ones over successive frames.
 
 use crate::config::ScannerConfig;
-use crate::decode::{Effort, RxingDecoder};
+use crate::decode::{verify, Effort, RxingDecoder};
 use crate::error::ScanError;
 use crate::frame::{Frame, PixelFormat};
 use crate::preprocess::{self, roi::crop_roi_owned};
@@ -119,6 +119,24 @@ impl Scanner {
 
     /// Run a single strategy on an (already cropped) grayscale image.
     pub fn run_strategy(
+        &self,
+        img: &GrayImage,
+        strategy: Strategy,
+    ) -> Result<Vec<ScanResult>, ScanError> {
+        let results = self.run_strategy_unchecked(img, strategy)?;
+        // Drop 1D reads that are not surrounded by a quiet zone (textures).
+        let results: Vec<ScanResult> = results
+            .into_iter()
+            .filter(|r| verify::plausible_linear(img, r))
+            .collect();
+        if results.is_empty() {
+            Err(ScanError::NotFound)
+        } else {
+            Ok(results)
+        }
+    }
+
+    fn run_strategy_unchecked(
         &self,
         img: &GrayImage,
         strategy: Strategy,

@@ -13,7 +13,8 @@ use web_time::{Duration, Instant};
 const CANDIDATE_WINDOW: Duration = Duration::from_millis(1000);
 
 /// Tracks recently detected barcodes to prevent duplicate reports, and
-/// requires several agreeing reads for symbologies prone to misreads.
+/// requires several agreeing reads for 1D symbologies, which are prone to
+/// false positives on noise and textures.
 pub struct FrameTracker {
     /// Map of barcode content → last time it was reported
     seen: HashMap<String, Instant>,
@@ -22,21 +23,22 @@ pub struct FrameTracker {
     /// How long before the same code can be reported again
     cooldown: Duration,
     /// Reads required before a weak-format code is reported
-    weak_confirmations: u32,
+    linear_confirmations: u32,
 }
 
 impl FrameTracker {
     /// Create a new tracker.
     ///
     /// - `cooldown_ms`: delay before the same content can be reported again.
-    /// - `weak_confirmations`: reads needed for weak formats (see
-    ///   [`BarcodeFormat::is_weak`](crate::BarcodeFormat::is_weak)); `<= 1` disables it.
-    pub fn new(cooldown_ms: u64, weak_confirmations: u32) -> Self {
+    /// - `linear_confirmations`: reads needed before a 1D code is reported
+    ///   (weak 1D formats need one more, 2D codes only one), see
+    ///   [`BarcodeFormat::required_confirmations`](crate::BarcodeFormat::required_confirmations).
+    pub fn new(cooldown_ms: u64, linear_confirmations: u32) -> Self {
         Self {
             seen: HashMap::new(),
             candidates: HashMap::new(),
             cooldown: Duration::from_millis(cooldown_ms),
-            weak_confirmations: weak_confirmations.max(1),
+            linear_confirmations: linear_confirmations.max(1),
         }
     }
 
@@ -65,14 +67,17 @@ impl FrameTracker {
                 continue;
             }
 
-            if result.format.is_weak() && self.weak_confirmations > 1 {
+            let required = result
+                .format
+                .required_confirmations(self.linear_confirmations);
+            if required > 1 {
                 let entry = self
                     .candidates
                     .entry(result.text.clone())
                     .or_insert((0, now));
                 entry.0 += 1;
                 entry.1 = now;
-                if entry.0 < self.weak_confirmations {
+                if entry.0 < required {
                     continue;
                 }
                 self.candidates.remove(&result.text);
@@ -135,24 +140,20 @@ mod tests {
     }
 
     #[test]
-    fn test_weak_format_needs_confirmation() {
+    fn test_linear_codes_need_confirmation() {
         let mut tracker = FrameTracker::new(2000, 2);
-        assert!(tracker
-            .filter_new(vec![make("ABC", BarcodeFormat::Code39)])
-            .is_empty());
-        assert_eq!(
-            tracker
-                .filter_new(vec![make("ABC", BarcodeFormat::Code39)])
-                .len(),
-            1
-        );
-        // Strong formats are reported immediately.
-        assert_eq!(
-            tracker
-                .filter_new(vec![make("123", BarcodeFormat::Ean13)])
-                .len(),
-            1
-        );
+        let read = |t: &mut FrameTracker, text: &str, f| t.filter_new(vec![make(text, f)]).len();
+        // 2D: first read is reported.
+        assert_eq!(read(&mut tracker, "qr", BarcodeFormat::QrCode), 1);
+        // Strong 1D: second read.
+        assert_eq!(read(&mut tracker, "5901234123457", BarcodeFormat::Ean13), 0);
+        assert_eq!(read(&mut tracker, "5901234123457", BarcodeFormat::Ean13), 1);
+        // Weak 1D (UPC-E): third read.
+        assert_eq!(read(&mut tracker, "01234565", BarcodeFormat::UpcE), 0);
+        assert_eq!(read(&mut tracker, "01234565", BarcodeFormat::UpcE), 0);
+        assert_eq!(read(&mut tracker, "01234565", BarcodeFormat::UpcE), 1);
+        // A different (random) read does not count towards another candidate.
+        assert_eq!(read(&mut tracker, "07654321", BarcodeFormat::UpcE), 0);
     }
 
     #[test]

@@ -124,13 +124,14 @@ pub struct ScannerConfig {
     /// Default: `2000` (2 seconds)
     pub dedup_cooldown_ms: u64,
 
-    /// Number of consecutive frames that must agree before a code of a
-    /// "weak" format (no mandatory checksum: Code 39, Code 93, ITF, Codabar)
-    /// is reported by a `ScanSession`. Protects against misreads on blurry
-    /// frames. `1` disables the check.
+    /// Agreeing reads required within ~1 s before a `ScanSession` reports a
+    /// 1D code. Weak 1D formats (Code 39/93, ITF, Codabar, UPC-E, EAN-8) need
+    /// one more; 2D codes (error-corrected) are reported on the first read.
+    /// Protects against false positives on noise and textures. `1` disables
+    /// it for strong formats.
     ///
     /// Default: `2`
-    pub weak_format_confirmations: u32,
+    pub linear_confirmations: u32,
 
     /// Enable the adaptive frame throttle in `ScanSession`.
     ///
@@ -152,7 +153,7 @@ impl Default for ScannerConfig {
             max_results: 1,
             roi: None,
             dedup_cooldown_ms: 2000,
-            weak_format_confirmations: 2,
+            linear_confirmations: 2,
             adaptive_throttle: true,
         }
     }

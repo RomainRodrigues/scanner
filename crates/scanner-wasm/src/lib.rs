@@ -179,9 +179,10 @@ pub struct WasmScanConfig {
     /// Delay before the same content is reported again. Default: `2000`.
     #[tsify(optional)]
     pub dedup_cooldown_ms: Option<f64>,
-    /// Agreeing reads required for Code 39/93, ITF and Codabar. Default: `2`.
+    /// Agreeing reads required for 1D codes (weak 1D formats: one more,
+    /// 2D codes: always 1). Default: `2`.
     #[tsify(optional)]
-    pub weak_format_confirmations: Option<u32>,
+    pub linear_confirmations: Option<u32>,
     /// Skip frames when scanning gets slow. Disable it when the caller
     /// already applies back-pressure (Web Worker). Default: `true`.
     #[tsify(optional)]
@@ -231,8 +232,8 @@ fn js_config_to_core(js_cfg: Option<WasmScanConfig>, base: ScannerConfig) -> Sca
     if let Some(v) = c.dedup_cooldown_ms {
         config.dedup_cooldown_ms = v.max(0.0) as u64;
     }
-    if let Some(v) = c.weak_format_confirmations {
-        config.weak_format_confirmations = v;
+    if let Some(v) = c.linear_confirmations {
+        config.linear_confirmations = v;
     }
     if let Some(v) = c.adaptive_throttle {
         config.adaptive_throttle = v;

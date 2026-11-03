@@ -23,6 +23,8 @@ web-time = "1.1"
 
 [dev-dependencies]
 criterion = { workspace = true }
+# Encoders are only used to synthesise test codes.
+rxing = { workspace = true, features = ["encoders"] }
 env_logger = { workspace = true }
 
 [[bench]]

@@ -26,7 +26,7 @@ session.free();
 ```
 
 Config fields (all optional): `formats`, `preprocessing`, `tryRotations`,
-`tryInvert`, `maxResults`, `roi`, `dedupCooldownMs`, `weakFormatConfirmations`,
+`tryInvert`, `maxResults`, `roi`, `dedupCooldownMs`, `linearConfirmations`,
 `adaptiveThrottle`. Result `format` uses the same spelling as `formats`.
 
 ## Build

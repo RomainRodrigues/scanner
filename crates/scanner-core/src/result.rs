@@ -48,6 +48,24 @@ pub enum BarcodeFormat {
 }
 
 impl BarcodeFormat {
+    /// Every format the scanner can report (everything except `Unknown`).
+    pub const SUPPORTED: [BarcodeFormat; 14] = [
+        BarcodeFormat::QrCode,
+        BarcodeFormat::MicroQr,
+        BarcodeFormat::DataMatrix,
+        BarcodeFormat::Aztec,
+        BarcodeFormat::Pdf417,
+        BarcodeFormat::Code128,
+        BarcodeFormat::Code39,
+        BarcodeFormat::Code93,
+        BarcodeFormat::Ean13,
+        BarcodeFormat::Ean8,
+        BarcodeFormat::UpcA,
+        BarcodeFormat::UpcE,
+        BarcodeFormat::Itf,
+        BarcodeFormat::Codabar,
+    ];
+
     /// `true` for 1D (linear) symbologies.
     pub fn is_linear(&self) -> bool {
         matches!(
@@ -64,8 +82,9 @@ impl BarcodeFormat {
         )
     }
 
-    /// `true` for symbologies without a mandatory check digit, which are the
-    /// most prone to misreads on blurry frames.
+    /// `true` for the 1D symbologies most prone to false positives: no
+    /// mandatory check digit (Code 39/93, ITF, Codabar) or very short
+    /// (UPC-E: 6 digits, EAN-8). Noise and textures regularly "decode" as these.
     pub fn is_weak(&self) -> bool {
         matches!(
             self,
@@ -73,7 +92,25 @@ impl BarcodeFormat {
                 | BarcodeFormat::Code93
                 | BarcodeFormat::Itf
                 | BarcodeFormat::Codabar
+                | BarcodeFormat::UpcE
+                | BarcodeFormat::Ean8
         )
+    }
+
+    /// Agreeing reads a `ScanSession` requires before reporting this format,
+    /// given the configured `linear_confirmations`.
+    ///
+    /// 2D codes carry Reed–Solomon error correction: one read is enough.
+    /// 1D codes need `linear` reads, weak ones one more.
+    pub fn required_confirmations(&self, linear: u32) -> u32 {
+        let linear = linear.max(1);
+        if !self.is_linear() {
+            1
+        } else if self.is_weak() {
+            linear + 1
+        } else {
+            linear
+        }
     }
 }
 
@@ -229,7 +266,12 @@ mod tests {
     fn test_weak_formats() {
         assert!(BarcodeFormat::Code39.is_weak());
         assert!(BarcodeFormat::Itf.is_weak());
+        assert!(BarcodeFormat::UpcE.is_weak());
         assert!(!BarcodeFormat::Ean13.is_weak());
         assert!(!BarcodeFormat::QrCode.is_weak());
+        assert_eq!(BarcodeFormat::QrCode.required_confirmations(2), 1);
+        assert_eq!(BarcodeFormat::Ean13.required_confirmations(2), 2);
+        assert_eq!(BarcodeFormat::UpcE.required_confirmations(2), 3);
+        assert_eq!(BarcodeFormat::UpcE.required_confirmations(1), 2);
     }
 }

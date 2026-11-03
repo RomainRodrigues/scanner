@@ -70,7 +70,7 @@ impl ScanSession {
     /// Create a new session with the given configuration.
     pub fn new(config: ScannerConfig) -> Self {
         let throttle = config.adaptive_throttle.then(|| AdaptiveThrottle::new(15));
-        let tracker = FrameTracker::new(config.dedup_cooldown_ms, config.weak_format_confirmations);
+        let tracker = FrameTracker::new(config.dedup_cooldown_ms, config.linear_confirmations);
         let scanner = Scanner::new(config);
         let fallbacks = scanner.fallback_strategies();
 

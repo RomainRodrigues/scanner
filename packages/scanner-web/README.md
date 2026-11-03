@@ -47,7 +47,7 @@ await reader.destroy();  // removes the preview, frees the engine
 | `maxResults` | `1` | `> 1` detects several codes per frame (slower). |
 | `tryInvert` | `true` | Also read light-on-dark codes. |
 | `preprocessing` | `true` | Contrast / binarization fallbacks for hard frames. |
-| `weakFormatConfirmations` | `2` | Agreeing reads required for Code 39/93, ITF, Codabar (no checksum). |
+| `linearConfirmations` | `2` | Agreeing reads before a 1D code is reported. Weak 1D formats (Code 39/93, ITF, Codabar, UPC-E, EAN-8) need one more; 2D codes are reported on the first read. |
 | `camera` | `{ facingMode: 'environment', resolution: 'hd' }` | Also `deviceId`, `rememberDevice` (default `true`). |
 | `overlay` | all on | `showRegion`, `showDetections`, `showTorchButton`, `showCameraSwitch`, `color`, or `false`. |
 | `feedback` | beep + vibrate | `{ beep, vibrate }` or `false`. |
@@ -106,7 +106,7 @@ camera ─▶ <video> ─▶ WebGL2: crop to ROI · RGB→luma · box-filter dow
                                                              │ fast pass every frame
                                                              │ + 1 rotating fallback per frame
                                                              │   (try-harder, inverted, CLAHE, Sauvola)
-                                                             │ de-dup · multi-frame confirmation
+                                                             │ 1D quiet-zone check · multi-frame confirmation · de-dup
                          ◀────────────── new codes + live detections
 overlay (ROI mask, highlights, torch / camera buttons) · beep · vibration
 ```

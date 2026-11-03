@@ -45,8 +45,12 @@ export interface EngineOptions {
   maxResults?: number;
   /** Delay before the same content is reported again. Default: `1500` ms. */
   duplicateIntervalMs?: number;
-  /** Agreeing reads required for Code 39/93, ITF and Codabar. Default: `2`. */
-  weakFormatConfirmations?: number;
+  /**
+   * Agreeing reads required before a 1D code is reported. Weak 1D formats
+   * (Code 39/93, ITF, Codabar, UPC-E, EAN-8) need one more; 2D codes are
+   * reported on the first read. Default: `2`.
+   */
+  linearConfirmations?: number;
 }
 
 /** Where to load the engine from. Only needed when the bundler cannot resolve `import.meta.url`. */
