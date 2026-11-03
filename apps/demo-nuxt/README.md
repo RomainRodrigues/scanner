@@ -16,14 +16,17 @@ Re-run `npm run sdk` after changing the Rust engine or the SDK sources.
 
 ## Test on your phone (Cloudflare quick tunnel)
 
-The camera requires HTTPS on a phone. With [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
-installed (`brew install cloudflared` on macOS), in a second terminal:
+The camera requires HTTPS on a phone, hence the tunnel: `nuxt dev` serves the
+app on localhost, `cloudflared` gives it a public https URL. One command runs both
+(needs [`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/),
+`brew install cloudflared` on macOS):
 
 ```bash
-npm run tunnel
+npm run phone
 ```
 
-Open the `https://<random>.trycloudflare.com` URL it prints on your phone.
+Open the `https://<random>.trycloudflare.com` URL it prints on your phone. Ctrl+C stops both.
+(`npm run dev` + `npm run tunnel` in two terminals does the same thing.)
 `*.trycloudflare.com` is already allowed in `nuxt.config.ts`.
 
 If hot reload misbehaves through the tunnel, use the production build instead:

@@ -120,9 +120,12 @@ npm run test:e2e     # Chromium headless + fausse caméra (ffmpeg + Playwright)
 cd apps/demo-nuxt
 npm run sdk          # construit le SDK (à relancer après modif du Rust ou du SDK)
 npm install
-npm run dev          # http://localhost:3000
-npm run tunnel       # 2e terminal : URL https://xxx.trycloudflare.com à ouvrir sur le téléphone
+npm run phone        # lance Nuxt + le tunnel, affiche l'URL https://xxx.trycloudflare.com
 ```
+
+`npm run phone` lance les deux programmes nécessaires : le serveur Nuxt (qui sert la page
+sur localhost) et `cloudflared` (qui lui donne une adresse https publique) ; Ctrl+C arrête
+les deux. `npm run dev` seul suffit pour tester sur l'ordinateur.
 
 La caméra exige du HTTPS sur téléphone, d'où le tunnel (`cloudflared` doit être installé,
 ex. `brew install cloudflared`). Les domaines `*.trycloudflare.com` sont déjà autorisés
