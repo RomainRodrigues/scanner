@@ -84,65 +84,67 @@ les traitements coûteux dans le temps. C'est ce qui manquait à l'ancienne vers
 
 ## 💻 Lancer le projet en local
 
-### Prérequis
+Prérequis : Rust (rustup + cargo) et Node.js 20+. La cible `wasm32-unknown-unknown`
+et `wasm-bindgen-cli` (à la version exacte de `Cargo.lock`) sont **installés
+automatiquement** au premier build. Optionnel : `npm install -g binaryen` (`wasm-opt`,
+binaire ~20 % plus petit).
 
-- Rust (rustup + cargo) et Node.js 20+.
-- La cible `wasm32-unknown-unknown` et `wasm-bindgen-cli` (à la version exacte de
-  `Cargo.lock`) sont **installés automatiquement** au premier `npm run sdk` / `npm run build`.
-- Optionnel : `npm install -g binaryen` (fournit `wasm-opt`, binaire ~20 % plus petit).
-- Pour les tests Rust : `pip install qrcode pillow python-barcode` (images de test).
-
-### Tests du moteur Rust
+Le dépôt utilise les **npm workspaces** : un seul `npm install`, à la racine, installe
+le SDK et la démo.
 
 ```bash
-python3 tests/images/generate_test_images.py
-cargo test --workspace --release
+npm install          # une fois, à la racine
+npm run build        # Rust → WASM (standard + SIMD) + TypeScript (à relancer après modif du Rust ou du SDK)
+npm run dev          # démo sur l'ordinateur : http://localhost:3000
+npm run tunnel       # démo sur le téléphone : nuxt dev --tunnel (URL https + QR code)
 ```
 
-### Tests WASM (dans Node.js)
+`npm run sdk` depuis `apps/demo-nuxt` fait toujours la même chose que `npm run build`.
+
+Sur téléphone la caméra exige du HTTPS. `npm run tunnel` (= `nuxt dev --tunnel`) lance le
+serveur **et** un tunnel rapide Cloudflare : Nuxt affiche une URL
+`https://xxx.trycloudflare.com` et un QR code (seulement si la commande tourne dans un vrai
+terminal). La première fois, Nuxt demande d'accepter les conditions de Cloudflare et
+télécharge `cloudflared` tout seul. Si le rechargement à chaud se comporte mal à travers le
+tunnel : `npm run preview -w scanner-demo-nuxt` (build de production sur le port 3000).
+
+Le composant `apps/demo-nuxt/app/components/BarcodeScanner.vue` est un wrapper réutilisable
+à copier tel quel dans une vraie app Nuxt / Vue.
+
+### Qualité et tests
 
 ```bash
+npm run lint && npm run typecheck          # ESLint + Prettier, tsc + vue-tsc
+npm run test:e2e                           # Chromium headless + fausse caméra (ffmpeg + Playwright)
+cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --release
 CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
   cargo test -p scanner-wasm --target wasm32-unknown-unknown --test web
 ```
 
-### SDK et tests de bout en bout
+**Les images de test** (`tests/fixtures/`) sont versionnées : il y en a peu, c'est voulu.
+Les cas difficiles sont **générés directement dans les tests** (encodeurs rxing + flou +
+bruit + textures), ce qui est déterministe et couvre chaque format 1D/2D. Ce qui manque :
+un jeu de **vraies photos** (reflets, codes abîmés, angles) pour un benchmark réaliste.
 
-```bash
-cd packages/scanner-web
-npm install
-npm run build        # Rust → WASM (standard + SIMD) puis TypeScript → dist/
-npm run test:e2e     # Chromium headless + fausse caméra (ffmpeg + Playwright)
-```
+### GitHub Actions
 
-### Démo Nuxt 4 et test sur téléphone
+- **CI** (`.github/workflows/ci.yml`, à chaque push sur `main` et chaque pull request) :
+  fmt / clippy / tests / doc Rust, tests WASM dans Node.js, ESLint + Prettier, build du
+  SDK, vérification des types, tests e2e avec fausse caméra, build de la démo.
+- **Pages** (`.github/workflows/pages.yml`, à chaque push sur `main`) : génère la démo
+  Nuxt et la publie sur https://romainrodrigues.github.io/scanner/.
+  À activer une fois : *Settings → Pages → Build and deployment → Source : GitHub Actions*.
 
-```bash
-cd apps/demo-nuxt
-npm run sdk          # construit le SDK (à relancer après modif du Rust ou du SDK)
-npm install
-npm run dev          # sur l'ordinateur : http://localhost:3000
-npm run tunnel       # sur le téléphone : nuxt dev --tunnel
-```
-
-Sur téléphone la caméra exige du HTTPS. `npm run tunnel` (= `nuxt dev --tunnel`) lance le
-serveur **et** un tunnel rapide Cloudflare en une seule commande : Nuxt affiche une URL
-`https://xxx.trycloudflare.com` et un QR code à scanner avec le téléphone. La première fois,
-Nuxt demande d'accepter les conditions de Cloudflare et télécharge `cloudflared` tout seul
-(ou l'installer avant, ex. `brew install cloudflared`). Si le rechargement à chaud se comporte
-mal à travers le tunnel : `npm run preview` (build de production servi sur le port 3000).
-
-Le composant `app/components/BarcodeScanner.vue` est un wrapper réutilisable à copier
-tel quel dans une vraie app Nuxt / Vue.
+Règles de contribution, cas particuliers connus et conventions : [CLAUDE.md](CLAUDE.md).
 
 ---
 
 ## 📦 Publier sur npm
 
 ```bash
-cd packages/scanner-web
 npm run build
-npm publish --access public
+npm publish -w @gueshbzh-perso/scanner --access public
 ```
 
 Côté client avec **Vite / Nuxt**, exclure le paquet du pré-bundling, sinon les URLs

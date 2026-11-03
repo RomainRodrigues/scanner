@@ -35,29 +35,37 @@ packages/
   scanner-web/      TypeScript SDK published to npm
 apps/
   demo-nuxt/        Nuxt 4 demo (phone testing through a Cloudflare tunnel)
-tests/images/       Test image generator
+tests/fixtures/     Committed test images (+ generate.py to regenerate them)
 ```
+
+**Live demo:** https://romainrodrigues.github.io/scanner/ (deployed from `main`).
 
 ## Development
 
+Requirements: Rust (rustup) and Node.js 20+. Everything else (wasm32 target,
+`wasm-bindgen-cli` pinned by `Cargo.lock`) is installed on the first build.
+
 ```bash
-# Rust engine
-python3 tests/images/generate_test_images.py   # pip install qrcode pillow python-barcode
+npm install          # once, at the root (npm workspaces: SDK + demo)
+npm run build        # Rust → WASM (baseline + SIMD) + TypeScript
+npm run dev          # demo on http://localhost:3000
+npm run tunnel       # demo + Cloudflare tunnel (https URL + QR code) for your phone
+
+npm run lint && npm run typecheck
+npm run test:e2e     # headless Chromium with a fake camera (ffmpeg + Playwright)
 cargo test --workspace --release
-
-# SDK (needs Rust; the wasm target and wasm-bindgen-cli are installed automatically)
-cd packages/scanner-web
-npm install
-npm run build
-npm run test:e2e    # headless Chromium with a fake camera
-
-# Demo (Nuxt 4)
-cd apps/demo-nuxt
-npm install && npm run dev          # http://localhost:3000
-npm run tunnel                      # nuxt dev --tunnel: https URL + QR code for your phone
 ```
 
-French documentation: [DOCUMENTATION_FR.md](DOCUMENTATION_FR.md).
+## Continuous integration
+
+- **CI** (`.github/workflows/ci.yml`, every push to `main` and every pull request):
+  Rust fmt / clippy / tests / docs, WASM tests in Node.js, ESLint + Prettier,
+  SDK build, type checks, end-to-end tests with a fake camera, demo build.
+- **Pages** (`.github/workflows/pages.yml`, every push to `main`): builds the Nuxt
+  demo and deploys it to GitHub Pages.
+
+Contributing rules, known pitfalls and conventions: [CLAUDE.md](CLAUDE.md).
+French documentation: [DOCUMENTATION_FR.md](DOCUMENTATION_FR.md). Changes: [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
