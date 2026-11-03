@@ -124,10 +124,11 @@ Chrome/Edge 80+, Firefox 114+, Safari 15+. Camera access requires HTTPS (or `loc
 
 ## Development
 
+A Nuxt 4 demo lives in [`apps/demo-nuxt`](../../apps/demo-nuxt).
+
 ```bash
 npm install
 npm run build      # Rust → WASM (baseline + SIMD), then TypeScript
-npm run demo       # http://localhost:8080/demo/
 npm run test:e2e   # headless Chromium with a fake camera (needs ffmpeg + Playwright)
 ```
 

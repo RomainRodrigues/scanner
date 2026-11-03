@@ -32,7 +32,9 @@ crates/
   scanner-core/     Rust engine: preprocessing, decoding strategies, real-time session
   scanner-wasm/     wasm-bindgen bindings (low-level engine API)
 packages/
-  scanner-web/      TypeScript SDK published to npm (+ demo/)
+  scanner-web/      TypeScript SDK published to npm
+apps/
+  demo-nuxt/        Nuxt 4 demo (phone testing through a Cloudflare tunnel)
 tests/images/       Test image generator
 ```
 
@@ -47,8 +49,12 @@ cargo test --workspace --release
 cd packages/scanner-web
 npm install
 npm run build
-npm run demo        # http://localhost:8080/demo/
 npm run test:e2e    # headless Chromium with a fake camera
+
+# Demo (Nuxt 4)
+cd apps/demo-nuxt
+npm install && npm run dev          # http://localhost:3000
+npm run tunnel                      # https URL for your phone (cloudflared)
 ```
 
 French documentation: [DOCUMENTATION_FR.md](DOCUMENTATION_FR.md).

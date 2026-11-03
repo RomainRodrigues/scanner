@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Minimal static server for the demo (http://localhost:8080/demo/).
+// Minimal static server used by the e2e tests.
 // Camera access requires a secure context: localhost qualifies.
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
@@ -39,5 +39,5 @@ export function serve(port = Number(process.env.PORT ?? 8080)) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const server = await serve();
-  console.log(`Demo: http://localhost:${server.address().port}/demo/`);
+  console.log(`Serving on http://localhost:${server.address().port}/`);
 }

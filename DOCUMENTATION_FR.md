@@ -13,7 +13,8 @@ Le CLI (`scanner-cli`) et l'addon Node natif (`scanner-napi`) ont été supprim�
 ```
 crates/scanner-core/     Moteur Rust : prétraitements, stratégies de décodage, session temps réel
 crates/scanner-wasm/     Bindings WebAssembly (API bas niveau)
-packages/scanner-web/    SDK TypeScript publié sur npm : @gueshbzh-perso/scanner (+ demo/)
+packages/scanner-web/    SDK TypeScript publié sur npm : @gueshbzh-perso/scanner
+apps/demo-nuxt/          Démo Nuxt 4 (test sur téléphone via tunnel Cloudflare)
 ```
 
 Le client n'installe que le SDK : il embarque le WASM, le worker et l'UI.
@@ -105,18 +106,32 @@ CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
   cargo test -p scanner-wasm --target wasm32-unknown-unknown --test web
 ```
 
-### SDK, démo et tests de bout en bout
+### SDK et tests de bout en bout
 
 ```bash
 cd packages/scanner-web
 npm install
 npm run build        # Rust → WASM (standard + SIMD) puis TypeScript → dist/
-npm run demo         # http://localhost:8080/demo/
 npm run test:e2e     # Chromium headless + fausse caméra (ffmpeg + Playwright)
 ```
 
-Pour tester sur téléphone, la caméra exige du HTTPS : utiliser un tunnel
-(`npx localtunnel --port 8080`, ngrok, Cloudflare Tunnel…).
+### Démo Nuxt 4 et test sur téléphone
+
+```bash
+cd apps/demo-nuxt
+npm run sdk          # construit le SDK (à relancer après modif du Rust ou du SDK)
+npm install
+npm run dev          # http://localhost:3000
+npm run tunnel       # 2e terminal : URL https://xxx.trycloudflare.com à ouvrir sur le téléphone
+```
+
+La caméra exige du HTTPS sur téléphone, d'où le tunnel (`cloudflared` doit être installé,
+ex. `brew install cloudflared`). Les domaines `*.trycloudflare.com` sont déjà autorisés
+dans `nuxt.config.ts`. Si le rechargement à chaud se comporte mal à travers le tunnel :
+`npm run preview` (build de production servi sur le port 3000).
+
+Le composant `app/components/BarcodeScanner.vue` est un wrapper réutilisable à copier
+tel quel dans une vraie app Nuxt / Vue.
 
 ---
 
@@ -136,7 +151,7 @@ du worker et du `.wasm` sont cassées :
 export default { optimizeDeps: { exclude: ['@gueshbzh-perso/scanner'] } };
 ```
 
-Exemple Vue 3 :
+Exemple Vue 3 (version complète : `apps/demo-nuxt/app/components/BarcodeScanner.vue`) :
 
 ```ts
 let reader;

@@ -66,7 +66,7 @@ for (const s of scenarios) {
     const logs = [];
     page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
     page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
-    await page.goto(`${base}/demo/`);
+    await page.goto(`${base}/test/e2e.html`);
     const out = await page.evaluate(async (options) => {
       const { BarcodeReader } = await import('/dist/index.js');
       const host = document.createElement('div');
@@ -110,7 +110,7 @@ for (const s of scenarios) {
   const browser = await chromium.launch();
   try {
     const page = await browser.newPage();
-    await page.goto(`${base}/demo/`);
+    await page.goto(`${base}/test/e2e.html`);
     const png = readFileSync(join(images, 'qr/multiple.png')).toString('base64');
     const texts = await page.evaluate(async (b64) => {
       const { scanImage } = await import('/dist/index.js');
