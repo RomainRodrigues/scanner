@@ -45,7 +45,7 @@ tests/images/       Test image generator
 python3 tests/images/generate_test_images.py   # pip install qrcode pillow python-barcode
 cargo test --workspace --release
 
-# SDK (needs wasm32-unknown-unknown + wasm-bindgen-cli, see the SDK README)
+# SDK (needs Rust; the wasm target and wasm-bindgen-cli are installed automatically)
 cd packages/scanner-web
 npm install
 npm run build

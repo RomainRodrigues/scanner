@@ -85,12 +85,11 @@ les traitements coûteux dans le temps. C'est ce qui manquait à l'ancienne vers
 
 ### Prérequis
 
-```bash
-rustup target add wasm32-unknown-unknown
-cargo install wasm-bindgen-cli --version 0.2.125   # même version que Cargo.lock
-npm install -g binaryen                             # optionnel : wasm-opt
-pip install qrcode pillow python-barcode            # images de test
-```
+- Rust (rustup + cargo) et Node.js 20+.
+- La cible `wasm32-unknown-unknown` et `wasm-bindgen-cli` (à la version exacte de
+  `Cargo.lock`) sont **installés automatiquement** au premier `npm run sdk` / `npm run build`.
+- Optionnel : `npm install -g binaryen` (fournit `wasm-opt`, binaire ~20 % plus petit).
+- Pour les tests Rust : `pip install qrcode pillow python-barcode` (images de test).
 
 ### Tests du moteur Rust
 

@@ -7,7 +7,7 @@ Demo app of the `@gueshbzh-perso/scanner` SDK, linked from `packages/scanner-web
 
 ```bash
 cd apps/demo-nuxt
-npm run sdk       # builds the SDK (Rust → WASM + TypeScript), needs the Rust toolchain
+npm run sdk       # builds the SDK (Rust → WASM + TypeScript); needs Rust, installs the rest
 npm install
 npm run dev       # http://localhost:3000
 ```

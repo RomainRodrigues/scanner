@@ -132,9 +132,9 @@ npm run build      # Rust → WASM (baseline + SIMD), then TypeScript
 npm run test:e2e   # headless Chromium with a fake camera (needs ffmpeg + Playwright)
 ```
 
-`npm run build:wasm` needs `rustup target add wasm32-unknown-unknown`, the
-`wasm-bindgen-cli` version pinned in `Cargo.lock`, and optionally `wasm-opt`
-(binaryen) for a smaller binary.
+`npm run build:wasm` only needs Rust (rustup + cargo): the `wasm32-unknown-unknown`
+target and the `wasm-bindgen-cli` version pinned in `Cargo.lock` are installed
+automatically on first run. `wasm-opt` (binaryen) is optional, for a smaller binary.
 
 ## License
 
