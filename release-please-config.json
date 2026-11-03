@@ -1,5 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "24a8d3f19f14ba689a43ab4407ade6318b6f136b",
   "packages": {
     ".": {
       "release-type": "simple",
@@ -8,8 +9,16 @@
       "include-component-in-tag": false,
       "bump-minor-pre-major": true,
       "extra-files": [
-        { "type": "toml", "path": "Cargo.toml", "jsonpath": "$.workspace.package.version" },
-        { "type": "json", "path": "packages/scanner-web/package.json", "jsonpath": "$.version" }
+        {
+          "type": "toml",
+          "path": "Cargo.toml",
+          "jsonpath": "$.workspace.package.version"
+        },
+        {
+          "type": "json",
+          "path": "packages/scanner-web/package.json",
+          "jsonpath": "$.version"
+        }
       ]
     }
   }
