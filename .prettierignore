@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.nuxt/
+.output/
+target/
+packages/scanner-web/src/wasm/
+package-lock.json
+*.md

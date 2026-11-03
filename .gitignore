@@ -15,32 +15,14 @@
 # Benchmark results (HTML reports)
 /criterion/
 
-# Generated test artifacts
-tests/images/qr/*.png
-tests/images/qr/*.jpg
-tests/images/barcode_1d/*.png
-tests/images/barcode_1d/*.jpg
-tests/images/barcode_2d/*.png
-tests/images/edge_cases/*.png
-tests/images/edge_cases/*.jpg
-
-# Keep the generator script
-!tests/images/generate_test_images.py
-
-# WASM build output
+# WASM / SDK build output
 crates/scanner-wasm/pkg/
-crates/scanner-wasm/demo/scanner_wasm_bg.wasm
-crates/scanner-wasm/demo/scanner_wasm_bg.wasm.d.ts
-crates/scanner-wasm/demo/scanner_wasm.js
-crates/scanner-wasm/demo/scanner_wasm.d.ts
+packages/*/dist/
+packages/*/src/wasm/
+packages/*/.wasm-tmp/
 
-# Node.js native addon binaries
-crates/scanner-napi/*.node
-*.node
-
-# Node modules & lock files (keep package-lock.json for reproducibility but ignore node_modules)
+# Node modules
 node_modules/
-crates/scanner-napi/node_modules/
 
 # Python virtualenv
 venv/

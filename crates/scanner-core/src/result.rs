@@ -5,46 +5,133 @@ use serde::{Deserialize, Serialize};
 /// A 2D point representing a corner of a detected barcode.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Point {
+    /// Horizontal coordinate, in pixels from the left edge.
     pub x: f32,
+    /// Vertical coordinate, in pixels from the top edge.
     pub y: f32,
 }
 
 impl Point {
+    /// Create a point.
     pub fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
 }
 
-/// The detected barcode format.
+/// Barcode symbology.
+///
+/// Serialized in `snake_case` (`"qr_code"`, `"ean_13"`…): this is the spelling
+/// used by the JavaScript API for both the `formats` option and results.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BarcodeFormat {
-    // 2D formats
+    // ── 2D ──
+    /// QR Code (ISO/IEC 18004).
     QrCode,
+    /// Micro QR. rxing has no dedicated reader: it is decoded by the QR reader
+    /// and reported as [`BarcodeFormat::QrCode`].
     MicroQr,
+    /// Data Matrix (ISO/IEC 16022).
     DataMatrix,
+    /// Aztec (ISO/IEC 24778).
     Aztec,
+    /// PDF417 (ISO/IEC 15438).
     Pdf417,
 
-    // 1D formats
+    // ── 1D ──
+    /// Code 128 (ISO/IEC 15417).
     #[serde(rename = "code_128")]
     Code128,
+    /// Code 39 (ISO/IEC 16388). No mandatory check digit.
     #[serde(rename = "code_39")]
     Code39,
+    /// Code 93.
     #[serde(rename = "code_93")]
     Code93,
+    /// EAN-13 (ISO/IEC 15420).
     #[serde(rename = "ean_13")]
     Ean13,
+    /// EAN-8 (ISO/IEC 15420).
     #[serde(rename = "ean_8")]
     Ean8,
+    /// UPC-A (ISO/IEC 15420).
     UpcA,
+    /// UPC-E, the 6-digit zero-suppressed UPC (ISO/IEC 15420).
     UpcE,
-    /// Interleaved 2-of-5
+    /// Interleaved 2 of 5 (ISO/IEC 16390).
     Itf,
+    /// Codabar.
     Codabar,
 
     /// Any other format not explicitly listed
     Unknown,
+}
+
+impl BarcodeFormat {
+    /// Every format the scanner can report (everything except `Unknown`).
+    pub const SUPPORTED: [BarcodeFormat; 14] = [
+        BarcodeFormat::QrCode,
+        BarcodeFormat::MicroQr,
+        BarcodeFormat::DataMatrix,
+        BarcodeFormat::Aztec,
+        BarcodeFormat::Pdf417,
+        BarcodeFormat::Code128,
+        BarcodeFormat::Code39,
+        BarcodeFormat::Code93,
+        BarcodeFormat::Ean13,
+        BarcodeFormat::Ean8,
+        BarcodeFormat::UpcA,
+        BarcodeFormat::UpcE,
+        BarcodeFormat::Itf,
+        BarcodeFormat::Codabar,
+    ];
+
+    /// `true` for 1D (linear) symbologies.
+    pub fn is_linear(&self) -> bool {
+        matches!(
+            self,
+            BarcodeFormat::Code128
+                | BarcodeFormat::Code39
+                | BarcodeFormat::Code93
+                | BarcodeFormat::Ean13
+                | BarcodeFormat::Ean8
+                | BarcodeFormat::UpcA
+                | BarcodeFormat::UpcE
+                | BarcodeFormat::Itf
+                | BarcodeFormat::Codabar
+        )
+    }
+
+    /// `true` for the 1D symbologies most prone to false positives: no
+    /// mandatory check digit (Code 39/93, ITF, Codabar) or very short
+    /// (UPC-E: 6 digits, EAN-8). Noise and textures regularly "decode" as these.
+    pub fn is_weak(&self) -> bool {
+        matches!(
+            self,
+            BarcodeFormat::Code39
+                | BarcodeFormat::Code93
+                | BarcodeFormat::Itf
+                | BarcodeFormat::Codabar
+                | BarcodeFormat::UpcE
+                | BarcodeFormat::Ean8
+        )
+    }
+
+    /// Agreeing reads a `ScanSession` requires before reporting this format,
+    /// given the configured `linear_confirmations`.
+    ///
+    /// 2D codes carry Reed–Solomon error correction: one read is enough.
+    /// 1D codes need `linear` reads, weak ones one more.
+    pub fn required_confirmations(&self, linear: u32) -> u32 {
+        let linear = linear.max(1);
+        if !self.is_linear() {
+            1
+        } else if self.is_weak() {
+            linear + 1
+        } else {
+            linear
+        }
+    }
 }
 
 impl std::fmt::Display for BarcodeFormat {
@@ -131,22 +218,12 @@ pub struct ScanResult {
     /// Raw bytes of the decoded barcode (useful for binary QR codes).
     pub raw_bytes: Option<Vec<u8>>,
 
-    /// The four corner points of the detected barcode in image coordinates.
-    /// May have fewer points for 1D barcodes.
+    /// Location of the barcode in the coordinate system of the frame that was
+    /// passed to the scanner (ROI offset and rotations are already undone).
+    ///
+    /// 2D codes usually report 3–4 finder points; 1D codes report the two
+    /// end points of the scan line that decoded them.
     pub points: Vec<Point>,
-
-    /// Confidence score in range [0.0, 1.0].
-    ///
-    /// **Note**: rxing does not expose a native confidence value. This field is
-    /// always `1.0` for successful decodes. Treat it as a boolean (found/not found)
-    /// rather than a probability.
-    pub confidence: f32,
-
-    /// Rotation angle of the detected barcode in degrees.
-    ///
-    /// **Note**: Currently always `0.0`. Orientation detection is not yet
-    /// implemented — do not rely on this value.
-    pub orientation: f32,
 
     /// Unix timestamp (milliseconds) when this scan occurred.
     pub timestamp_ms: u64,
@@ -156,7 +233,7 @@ impl ScanResult {
     /// Create a new ScanResult from an rxing result.
     pub(crate) fn from_rxing(result: &rxing::RXingResult) -> Self {
         let points: Vec<Point> = result
-            .getRXingResultPoints()
+            .getPoints()
             .iter()
             .map(|p| Point::new(p.x, p.y))
             .collect();
@@ -166,21 +243,55 @@ impl ScanResult {
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
 
+        let raw = result.getRawBytes();
         Self {
             text: result.getText().to_string(),
             format: BarcodeFormat::from(*result.getBarcodeFormat()),
-            raw_bytes: {
-                let b = result.getRawBytes().to_vec();
-                if b.is_empty() {
-                    None
-                } else {
-                    Some(b)
-                }
+            raw_bytes: if raw.is_empty() {
+                None
+            } else {
+                Some(raw.to_vec())
             },
             points,
-            confidence: 1.0, // rxing doesn't expose confidence directly
-            orientation: 0.0,
             timestamp_ms,
         }
+    }
+
+    /// Apply a coordinate transform to every point of the result.
+    pub(crate) fn map_points(&mut self, f: impl Fn(Point) -> Point) {
+        for p in &mut self.points {
+            *p = f(*p);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_str() {
+        assert_eq!(
+            "qr_code".parse::<BarcodeFormat>(),
+            Ok(BarcodeFormat::QrCode)
+        );
+        assert_eq!(
+            "Code 128".parse::<BarcodeFormat>(),
+            Ok(BarcodeFormat::Code128)
+        );
+        assert_eq!("EAN-13".parse::<BarcodeFormat>(), Ok(BarcodeFormat::Ean13));
+    }
+
+    #[test]
+    fn test_weak_formats() {
+        assert!(BarcodeFormat::Code39.is_weak());
+        assert!(BarcodeFormat::Itf.is_weak());
+        assert!(BarcodeFormat::UpcE.is_weak());
+        assert!(!BarcodeFormat::Ean13.is_weak());
+        assert!(!BarcodeFormat::QrCode.is_weak());
+        assert_eq!(BarcodeFormat::QrCode.required_confirmations(2), 1);
+        assert_eq!(BarcodeFormat::Ean13.required_confirmations(2), 2);
+        assert_eq!(BarcodeFormat::UpcE.required_confirmations(2), 3);
+        assert_eq!(BarcodeFormat::UpcE.required_confirmations(1), 2);
     }
 }

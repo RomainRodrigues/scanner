@@ -3,38 +3,59 @@ resolver = "2"
 
 members = [
     "crates/scanner-core",
-    "crates/scanner-cli",
-    "crates/scanner-napi",
     "crates/scanner-wasm",
 ]
 
 [workspace.package]
-version = "0.3.2"
+version = "0.4.0"
 edition = "2021"
 authors = ["scanner"]
 license = "MIT"
-repository = "https://github.com/romrd/scanner"
+repository = "https://github.com/RomainRodrigues/scanner"
+rust-version = "1.87"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+cast_lossless = "warn"
+manual_let_else = "warn"
+needless_pass_by_value = "warn"
+redundant_closure_for_method_calls = "warn"
+semicolon_if_nothing_returned = "warn"
+uninlined_format_args = "warn"
+unwrap_used = "warn"
+dbg_macro = "warn"
+todo = "warn"
 
 [workspace.dependencies]
-# Core scanning engine
-rxing = { version = "0.9", features = ["image", "encoding_rs", "decoders"] }
+# Core scanning engine.
+# Default features are disabled on purpose: they pull in encoders, ~15 image
+# codecs and `client_support` (chrono-tz, regex…) which bloat the WASM binary
+# and are never used by a scanner.
+rxing = { version = "0.9", default-features = false, features = [
+    "decoders",
+    "encoding_rs",
+    "multi_barcode_readers",
+    "qrcode",
+    "datamatrix",
+    "aztec",
+    "pdf417",
+    "oned",
+] }
 
 # Image processing
-image = { version = "0.25", default-features = false, features = [
-    "png",
-    "jpeg",
-    "gif",
-    "webp",
-] }
+image = { version = "0.25", default-features = false }
 imageproc = { version = "0.25", default-features = false }
 
 # Error handling & utilities
 thiserror = "2"
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
-
-# Async
-tokio = { version = "1", features = ["full"] }
 
 # Dev dependencies
 criterion = { version = "0.5", features = ["html_reports"] }
@@ -45,3 +66,4 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+opt-level = 3

@@ -1,0 +1,185 @@
+#!/usr/bin/env node
+// End-to-end test in headless Chromium with a fake camera.
+//
+// Requirements: `npm run build`, Playwright + Chromium and ffmpeg.
+// Set CHROMIUM_PATH to use an existing Chromium binary.
+// Camera feeds are rendered from the committed images in tests/fixtures/.
+//
+// For each scenario a synthetic camera feed (.y4m) is rendered with ffmpeg and
+// fed to Chromium as its webcam, then the real SDK is driven in the page.
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { serve } from './serve.mjs';
+
+const require = createRequire(import.meta.url);
+const { chromium } = require('playwright');
+
+const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const images = resolve(pkgDir, '../../tests/fixtures');
+const tmp = mkdtempSync(join(tmpdir(), 'scanner-e2e-'));
+// Optional: use an existing Chromium instead of Playwright's own download.
+const executablePath = process.env.CHROMIUM_PATH || undefined;
+
+/** Render a 1280×720 camera feed with `image` pasted at the center, scaled to `size` px wide. */
+function fakeCamera(name, image, size, { invert = false } = {}) {
+  const out = join(tmp, `${name}.y4m`);
+  const neg = invert ? ',negate' : '';
+  execFileSync('ffmpeg', [
+    '-loglevel',
+    'error',
+    '-y',
+    '-f',
+    'lavfi',
+    '-i',
+    `color=${invert ? 'black' : 'white'}:s=1280x720:r=30`,
+    '-i',
+    image,
+    '-filter_complex',
+    `[1]scale=${size}:-1:flags=neighbor${neg}[c];[0][c]overlay=(W-w)/2:(H-h)/2`,
+    '-frames:v',
+    '30',
+    '-pix_fmt',
+    'yuv420p',
+    out,
+  ]);
+  return out;
+}
+
+const scenarios = [
+  {
+    name: 'qr-webgl-worker',
+    image: 'qr/clean_hd.png',
+    size: 330,
+    expect: 'https://github.com/romrd/scanner',
+    options: {},
+  },
+  {
+    name: 'ean13-webgl-worker',
+    image: 'barcode_1d/ean13_clean.png',
+    size: 700,
+    expect: '5901234123457',
+    options: { formats: ['ean_13'] },
+  },
+  {
+    name: 'code128-canvas-inline',
+    image: 'barcode_1d/code128.png',
+    size: 800,
+    expect: 'SCANNER-TEST-128',
+    options: { worker: false, processing: { backend: 'canvas' } },
+  },
+  {
+    name: 'qr-inverted',
+    image: 'qr/clean_hd.png',
+    size: 330,
+    invert: true,
+    expect: 'https://github.com/romrd/scanner',
+    options: {},
+  },
+];
+
+const server = await serve(0);
+const base = `http://localhost:${server.address().port}`;
+let failures = 0;
+
+for (const s of scenarios) {
+  const src = join(images, s.image);
+  if (!existsSync(src)) {
+    throw new Error(`missing fixture ${s.image}`);
+  }
+  const video = fakeCamera(s.name, src, s.size, { invert: s.invert });
+  const browser = await chromium.launch({
+    executablePath,
+    args: [
+      '--use-fake-ui-for-media-stream',
+      '--use-fake-device-for-media-stream',
+      `--use-file-for-fake-video-capture=${video}`,
+      '--enable-unsafe-swiftshader',
+    ],
+  });
+  try {
+    const page = await browser.newPage();
+    const logs = [];
+    page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
+    page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
+    await page.goto(`${base}/test/e2e.html`);
+    const out = await page.evaluate(async (options) => {
+      const { BarcodeReader } = await import('/dist/index.js');
+      const host = document.createElement('div');
+      host.style.cssText = 'width:640px;height:360px';
+      document.body.prepend(host);
+      const reader = await BarcodeReader.create({ host, feedback: false, ...options });
+      const t0 = performance.now();
+      const detected = new Promise((ok) => reader.on('detected', ok));
+      await reader.start();
+      const codes = await Promise.race([detected, new Promise((r) => setTimeout(() => r(null), 8000))]);
+      const elapsed = performance.now() - t0;
+      const result = {
+        codes,
+        elapsed,
+        stats: reader.stats,
+        video: [reader.video.videoWidth, reader.video.videoHeight],
+      };
+      await reader.destroy();
+      return result;
+    }, s.options);
+
+    const code = out.codes?.[0];
+    const ok = code?.text === s.expect;
+    // Points must be in video space, around the center of the 1280×720 frame.
+    const centered = code?.points.every(
+      (p) => p.x > 640 - s.size && p.x < 640 + s.size && p.y > 0 && p.y < 720,
+    );
+    const st = out.stats;
+    const info =
+      `${st.backend}${st.worker ? '+worker' : ''}${st.simd ? '+simd' : ''} ${st.frameWidth}×${st.frameHeight}, ` +
+      `first read ${out.elapsed.toFixed(0)} ms, decode ${st.decodeMs.toFixed(1)} ms, grab ${st.grabMs.toFixed(1)} ms`;
+    if (ok && centered) {
+      console.log(`✓ ${s.name}: "${code.text}" (${code.format}) — ${info}`);
+    } else {
+      failures++;
+      console.log(`✗ ${s.name}: expected "${s.expect}", got ${JSON.stringify(code)} — ${info}`);
+      console.log(logs.join('\n'));
+    }
+  } catch (err) {
+    failures++;
+    console.log(`✗ ${s.name}: ${err.message}`);
+  } finally {
+    await browser.close();
+  }
+}
+
+// scanImage() on a still image.
+{
+  const browser = await chromium.launch({ executablePath });
+  try {
+    const page = await browser.newPage();
+    await page.goto(`${base}/test/e2e.html`);
+    const png = readFileSync(join(images, 'qr/multiple.png')).toString('base64');
+    const texts = await page.evaluate(async (b64) => {
+      const { scanImage } = await import('/dist/index.js');
+      const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+      const codes = await scanImage(blob);
+      return codes.map((c) => c.text).sort();
+    }, png);
+    if (JSON.stringify(texts) === JSON.stringify(['Code A', 'Code B'])) {
+      console.log(`✓ scanImage multiple: ${texts.join(', ')}`);
+    } else {
+      failures++;
+      console.log(`✗ scanImage multiple: got ${JSON.stringify(texts)}`);
+    }
+  } finally {
+    await browser.close();
+  }
+}
+
+server.close();
+rmSync(tmp, { recursive: true, force: true });
+if (failures) {
+  console.log(`\n${failures} scenario(s) failed`);
+  process.exit(1);
+}
+console.log('\nAll e2e scenarios passed');

@@ -1,14 +1,11 @@
-//! Image preprocessing pipeline for robust barcode scanning.
+//! Image preprocessing used by the fallback decoding strategies.
 //!
-//! The pipeline is designed to be layered — each step is applied only when needed:
+//! None of this runs on the fast path: see [`Strategy`](crate::Strategy) for
+//! when each pipeline is used.
 //!
-//! 1. Grayscale conversion (always)
-//! 2. ROI crop (if configured)
-//! 3. Fast scan attempt (no further preprocessing)
-//! 4. If failed → CLAHE contrast enhancement
-//! 5. If failed → Unsharp mask sharpening
-//! 6. If failed → Sauvola adaptive binarization
-//! 7. Retry scan on enhanced image
+//! - [`contrast_pipeline`]: CLAHE, for low light / glare / faded print.
+//! - [`full_pipeline`]: CLAHE → unsharp mask → Sauvola binarization, for
+//!   shadows and blur.
 
 pub mod binarize;
 pub mod contrast;

@@ -1,16 +1,34 @@
 //! The main Scanner — orchestrates preprocessing and decoding for static images / single frames.
 //!
-//! For real-time camera scanning use `ScanSession` instead.
+//! For real-time camera scanning use `ScanSession` instead: it runs the same
+//! strategies but spreads the expensive ones over successive frames.
 
 use crate::config::ScannerConfig;
-use crate::decode::RxingDecoder;
+use crate::decode::{verify, Effort, RxingDecoder};
 use crate::error::ScanError;
 use crate::frame::{Frame, PixelFormat};
-use crate::preprocess::{self, roi::crop_roi};
-use crate::result::ScanResult;
-use image::DynamicImage;
+use crate::preprocess::{self, roi::crop_roi_owned};
+use crate::result::{Point, ScanResult};
+use image::{DynamicImage, GrayImage};
 use log::debug;
 use web_time::Instant;
+
+/// One way of looking at a frame. The scanner tries several of them, cheapest first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Strategy {
+    /// Raw grayscale, rxing default effort. Solves the vast majority of frames.
+    Fast,
+    /// Raw grayscale, rxing `TryHarder` (more scan lines, rotated 1D codes).
+    Hard,
+    /// Inverted grayscale (light code on dark background).
+    Inverted,
+    /// CLAHE contrast enhancement (low light, glare, low contrast print).
+    Contrast,
+    /// CLAHE + unsharp mask + Sauvola binarization (shadows, blur).
+    Binarized,
+    /// Inverted + binarized.
+    InvertedBinarized,
+}
 
 /// High-level scanner for one-shot image scanning.
 ///
@@ -41,7 +59,12 @@ impl Scanner {
         Self { config, decoder }
     }
 
-    /// Scan a raw pixel buffer.
+    /// The configuration this scanner was built with.
+    pub fn config(&self) -> &ScannerConfig {
+        &self.config
+    }
+
+    /// Scan a raw pixel buffer, trying every enabled strategy until one succeeds.
     ///
     /// # Parameters
     /// - `data`: Raw pixel bytes
@@ -55,12 +78,13 @@ impl Scanner {
         format: PixelFormat,
     ) -> Result<Vec<ScanResult>, ScanError> {
         let frame = Frame::new(data, width, height, format)?;
-        self.scan_frame_internal(&frame)
+        self.scan_luma_owned(frame.to_luma())
     }
 
     /// Scan an image file from disk.
     ///
-    /// Supports PNG, JPEG, GIF, WebP, and any format supported by the `image` crate.
+    /// Supports PNG, JPEG, GIF and WebP.
+    #[cfg(feature = "file-io")]
     pub fn scan_file(&self, path: &str) -> Result<Vec<ScanResult>, ScanError> {
         let img = image::open(path).map_err(|e| ScanError::ImageLoad {
             path: path.to_string(),
@@ -71,89 +95,113 @@ impl Scanner {
 
     /// Scan from an already-loaded `DynamicImage`.
     pub fn scan_dynamic_image(&self, img: &DynamicImage) -> Result<Vec<ScanResult>, ScanError> {
-        let luma = img.to_luma8();
-        self.scan_luma(&luma)
+        self.scan_luma_owned(img.to_luma8())
+    }
+
+    // ── Building blocks (shared with ScanSession) ────────────────────────────
+
+    /// Fallback strategies enabled by the configuration, in order of cost.
+    /// [`Strategy::Fast`] is not included: it always runs first.
+    pub fn fallback_strategies(&self) -> Vec<Strategy> {
+        let mut s = vec![Strategy::Hard];
+        if self.config.try_invert {
+            s.push(Strategy::Inverted);
+        }
+        if self.config.preprocessing {
+            s.push(Strategy::Contrast);
+            s.push(Strategy::Binarized);
+        }
+        if self.config.try_invert && self.config.preprocessing {
+            s.push(Strategy::InvertedBinarized);
+        }
+        s
+    }
+
+    /// Run a single strategy on an (already cropped) grayscale image.
+    pub fn run_strategy(
+        &self,
+        img: &GrayImage,
+        strategy: Strategy,
+    ) -> Result<Vec<ScanResult>, ScanError> {
+        let results = self.run_strategy_unchecked(img, strategy)?;
+        // Drop 1D reads that are not surrounded by a quiet zone (textures).
+        let results: Vec<ScanResult> = results
+            .into_iter()
+            .filter(|r| verify::plausible_linear(img, r))
+            .collect();
+        if results.is_empty() {
+            Err(ScanError::NotFound)
+        } else {
+            Ok(results)
+        }
+    }
+
+    fn run_strategy_unchecked(
+        &self,
+        img: &GrayImage,
+        strategy: Strategy,
+    ) -> Result<Vec<ScanResult>, ScanError> {
+        match strategy {
+            Strategy::Fast => self.decoder.decode_with(img, Effort::Fast),
+            Strategy::Hard => self.decoder.decode_with(img, Effort::Hard),
+            Strategy::Inverted => self.decoder.decode_inverted(img, Effort::Hard),
+            Strategy::Contrast => self
+                .decoder
+                .decode_with(&preprocess::contrast_pipeline(img), Effort::Fast),
+            Strategy::Binarized => self
+                .decoder
+                .decode_with(&preprocess::full_pipeline(img), Effort::Hard),
+            Strategy::InvertedBinarized => self
+                .decoder
+                .decode_inverted(&preprocess::full_pipeline(img), Effort::Hard),
+        }
+    }
+
+    /// Convert a frame to grayscale and crop it to the ROI.
+    /// Returns the image and the ROI top-left offset in frame pixels.
+    pub(crate) fn prepare(&self, frame: &Frame<'_>) -> (GrayImage, (u32, u32)) {
+        crop_roi_owned(frame.to_luma(), self.config.roi.as_ref())
     }
 
     // ── Internal pipeline ────────────────────────────────────────────────────
-
-    fn scan_frame_internal(&self, frame: &Frame<'_>) -> Result<Vec<ScanResult>, ScanError> {
-        let luma = frame.to_luma();
-        self.scan_luma(&luma)
-    }
 
     /// Core scan logic on a grayscale image.
     ///
     /// Pipeline:
     /// 1. ROI crop
-    /// 2. Fast scan (no preprocessing)
-    /// 3. Preprocessing + scan (if fast scan failed)
-    /// 4. Rotation retries (if configured and still failed)
-    /// 5. Invert retry (if configured and still failed)
-    pub(crate) fn scan_luma(&self, luma: &image::GrayImage) -> Result<Vec<ScanResult>, ScanError> {
+    /// 2. Fast scan, then every fallback strategy
+    /// 3. Rotation retries (if configured and still failed)
+    fn scan_luma_owned(&self, luma: GrayImage) -> Result<Vec<ScanResult>, ScanError> {
         let t0 = Instant::now();
+        let (cropped, origin) = crop_roi_owned(luma, self.config.roi.as_ref());
+        let offset = |results: Vec<ScanResult>| offset_results(results, origin);
 
-        // Step 1: ROI crop
-        let cropped = crop_roi(luma, self.config.roi.as_ref());
-
-        // Step 2: Fast scan — no preprocessing, works for clean images
-        debug!("Attempting fast scan ({:?})", luma.dimensions());
-        if let Ok(results) = self.decoder.decode(&cropped) {
-            debug!("Fast scan success in {:?}", t0.elapsed());
-            return Ok(results);
-        }
-
-        // Step 3: Preprocessing pipeline
-        if self.config.preprocessing {
-            debug!("Fast scan failed, applying contrast enhancement");
-            let contrasted = preprocess::contrast_pipeline(&cropped);
-            if let Ok(results) = self.decoder.decode(&contrasted) {
-                debug!("Contrast scan success in {:?}", t0.elapsed());
-                return Ok(results);
-            }
-
-            debug!("Contrast scan failed, applying full preprocessing pipeline");
-            let preprocessed = preprocess::full_pipeline(&cropped);
-            if let Ok(results) = self.decoder.decode(&preprocessed) {
-                debug!("Full preprocessing scan success in {:?}", t0.elapsed());
-                return Ok(results);
+        let strategies = std::iter::once(Strategy::Fast).chain(self.fallback_strategies());
+        for strategy in strategies {
+            if let Ok(results) = self.run_strategy(&cropped, strategy) {
+                debug!("{strategy:?} scan success in {:?}", t0.elapsed());
+                return Ok(offset(results));
             }
         }
 
-        // Step 4: Rotation retries
         if self.config.try_rotations {
-            debug!("Trying rotations");
+            let (w, h) = cropped.dimensions();
             for angle in [90u32, 180, 270] {
                 let rotated = rotate_luma(&cropped, angle);
-                if let Ok(results) = self.decoder.decode(&rotated) {
-                    debug!("Rotation {angle}° scan success in {:?}", t0.elapsed());
-                    return Ok(results);
-                }
-                if self.config.preprocessing {
-                    let preprocessed = preprocess::full_pipeline(&rotated);
-                    if let Ok(results) = self.decoder.decode(&preprocessed) {
+                for strategy in [Strategy::Hard, Strategy::Binarized] {
+                    if strategy == Strategy::Binarized && !self.config.preprocessing {
+                        continue;
+                    }
+                    if let Ok(mut results) = self.run_strategy(&rotated, strategy) {
                         debug!(
-                            "Rotation {angle}° + preprocess success in {:?}",
+                            "Rotation {angle}° {strategy:?} success in {:?}",
                             t0.elapsed()
                         );
-                        return Ok(results);
+                        for r in &mut results {
+                            r.map_points(|p| unrotate_point(p, angle, w, h));
+                        }
+                        return Ok(offset(results));
                     }
-                }
-            }
-        }
-
-        // Step 5: Invert (white-on-black barcodes)
-        if self.config.try_invert {
-            debug!("Trying inversion");
-            if let Ok(results) = self.decoder.decode_inverted(&cropped) {
-                debug!("Invert scan success in {:?}", t0.elapsed());
-                return Ok(results);
-            }
-            if self.config.preprocessing {
-                let preprocessed = preprocess::full_pipeline(&cropped);
-                if let Ok(results) = self.decoder.decode_inverted(&preprocessed) {
-                    debug!("Invert + preprocess success in {:?}", t0.elapsed());
-                    return Ok(results);
                 }
             }
         }
@@ -163,13 +211,40 @@ impl Scanner {
     }
 }
 
-/// Rotate a grayscale image by a multiple of 90°.
-fn rotate_luma(img: &image::GrayImage, angle_deg: u32) -> image::GrayImage {
+/// Translate result points from ROI space back to full-frame space.
+pub(crate) fn offset_results(
+    mut results: Vec<ScanResult>,
+    (ox, oy): (u32, u32),
+) -> Vec<ScanResult> {
+    if ox != 0 || oy != 0 {
+        for r in &mut results {
+            r.map_points(|p| Point::new(p.x + ox as f32, p.y + oy as f32));
+        }
+    }
+    results
+}
+
+/// Rotate a grayscale image clockwise by a multiple of 90°.
+fn rotate_luma(img: &GrayImage, angle_deg: u32) -> GrayImage {
     match angle_deg % 360 {
         90 => image::imageops::rotate90(img),
         180 => image::imageops::rotate180(img),
         270 => image::imageops::rotate270(img),
         _ => img.clone(),
+    }
+}
+
+/// Map a point found in an image rotated clockwise by `angle_deg` back to the
+/// original image of size `w`×`h`.
+fn unrotate_point(p: Point, angle_deg: u32, w: u32, h: u32) -> Point {
+    let (w, h) = (w as f32, h as f32);
+    match angle_deg % 360 {
+        // rotate90: (x, y) -> (h - 1 - y, x)
+        90 => Point::new(p.y, h - 1.0 - p.x),
+        180 => Point::new(w - 1.0 - p.x, h - 1.0 - p.y),
+        // rotate270: (x, y) -> (y, w - 1 - x)
+        270 => Point::new(w - 1.0 - p.y, p.x),
+        _ => p,
     }
 }
 
@@ -191,5 +266,34 @@ mod tests {
         let data = vec![0u8; 10]; // Too small
         let result = scanner.scan_frame(&data, 100, 100, PixelFormat::Rgba);
         assert!(matches!(result, Err(ScanError::InvalidImage(_))));
+    }
+
+    #[test]
+    fn test_unrotate_roundtrip() {
+        // A marker pixel at (3, 1) in a 10x5 image must map back after rotation.
+        let (w, h) = (10u32, 5u32);
+        let mut img = GrayImage::new(w, h);
+        img.put_pixel(3, 1, image::Luma([255]));
+        for angle in [90, 180, 270] {
+            let rotated = rotate_luma(&img, angle);
+            let (rx, ry) = rotated
+                .enumerate_pixels()
+                .find(|(_, _, p)| p[0] == 255)
+                .map(|(x, y, _)| (x, y))
+                .unwrap();
+            let back = unrotate_point(Point::new(rx as f32, ry as f32), angle, w, h);
+            assert_eq!((back.x, back.y), (3.0, 1.0), "angle {angle}");
+        }
+    }
+
+    #[test]
+    fn test_fallback_strategies_follow_config() {
+        let s = Scanner::new(ScannerConfig {
+            preprocessing: false,
+            try_invert: false,
+            ..ScannerConfig::default()
+        });
+        assert_eq!(s.fallback_strategies(), vec![Strategy::Hard]);
+        assert_eq!(Scanner::with_defaults().fallback_strategies().len(), 5);
     }
 }

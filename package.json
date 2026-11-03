@@ -1,0 +1,33 @@
+{
+  "name": "scanner-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/scanner-web",
+    "apps/demo-nuxt"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build -w @gueshbzh-perso/scanner",
+    "dev": "npm run dev -w scanner-demo-nuxt",
+    "tunnel": "npm run tunnel -w scanner-demo-nuxt",
+    "generate": "npm run generate -w scanner-demo-nuxt",
+    "lint": "eslint . && prettier --check .",
+    "format": "eslint . --fix && prettier --write .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test:e2e": "npm run test:e2e -w @gueshbzh-perso/scanner"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-vue": "^10.12.0",
+    "globals": "^17.14.0",
+    "prettier": "^3.9.10",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vue-eslint-parser": "^10.4.1"
+  }
+}

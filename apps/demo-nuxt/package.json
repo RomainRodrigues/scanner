@@ -1,0 +1,23 @@
+{
+  "name": "scanner-demo-nuxt",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "sdk": "npm run build -w @gueshbzh-perso/scanner",
+    "dev": "nuxt dev --host",
+    "build": "nuxt build",
+    "preview": "nuxt build && node .output/server/index.mjs",
+    "tunnel": "nuxt dev --tunnel",
+    "typecheck": "nuxt typecheck",
+    "generate": "nuxt generate",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@gueshbzh-perso/scanner": "*",
+    "nuxt": "^4.6.0",
+    "vue": "^3.5.0"
+  },
+  "devDependencies": {
+    "vue-tsc": "^3.3.14"
+  }
+}
