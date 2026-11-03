@@ -120,14 +120,16 @@ npm run test:e2e     # Chromium headless + fausse caméra (ffmpeg + Playwright)
 cd apps/demo-nuxt
 npm run sdk          # construit le SDK (à relancer après modif du Rust ou du SDK)
 npm install
-npm run dev          # http://localhost:3000
-npm run tunnel       # 2e terminal : URL https://xxx.trycloudflare.com à ouvrir sur le téléphone
+npm run dev          # sur l'ordinateur : http://localhost:3000
+npm run tunnel       # sur le téléphone : nuxt dev --tunnel
 ```
 
-La caméra exige du HTTPS sur téléphone, d'où le tunnel (`cloudflared` doit être installé,
-ex. `brew install cloudflared`). Les domaines `*.trycloudflare.com` sont déjà autorisés
-dans `nuxt.config.ts`. Si le rechargement à chaud se comporte mal à travers le tunnel :
-`npm run preview` (build de production servi sur le port 3000).
+Sur téléphone la caméra exige du HTTPS. `npm run tunnel` (= `nuxt dev --tunnel`) lance le
+serveur **et** un tunnel rapide Cloudflare en une seule commande : Nuxt affiche une URL
+`https://xxx.trycloudflare.com` et un QR code à scanner avec le téléphone. La première fois,
+Nuxt demande d'accepter les conditions de Cloudflare et télécharge `cloudflared` tout seul
+(ou l'installer avant, ex. `brew install cloudflared`). Si le rechargement à chaud se comporte
+mal à travers le tunnel : `npm run preview` (build de production servi sur le port 3000).
 
 Le composant `app/components/BarcodeScanner.vue` est un wrapper réutilisable à copier
 tel quel dans une vraie app Nuxt / Vue.

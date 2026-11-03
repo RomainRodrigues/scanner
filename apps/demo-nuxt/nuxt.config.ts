@@ -1,6 +1,6 @@
 // Demo of the scanner SDK in Nuxt 4.
 // The camera only works in a secure context: http://localhost, or https through
-// a tunnel (see README: `npm run tunnel` exposes the dev server with Cloudflare).
+// a tunnel (see README: `npm run tunnel` = `nuxt dev --tunnel`, Cloudflare quick tunnel).
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   // Camera scanning is client-only: render the demo as a SPA.

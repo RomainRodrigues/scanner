@@ -54,7 +54,7 @@ npm run test:e2e    # headless Chromium with a fake camera
 # Demo (Nuxt 4)
 cd apps/demo-nuxt
 npm install && npm run dev          # http://localhost:3000
-npm run tunnel                      # https URL for your phone (cloudflared)
+npm run tunnel                      # nuxt dev --tunnel: https URL + QR code for your phone
 ```
 
 French documentation: [DOCUMENTATION_FR.md](DOCUMENTATION_FR.md).

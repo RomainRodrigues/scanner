@@ -7,7 +7,7 @@
     "dev": "nuxt dev --host",
     "build": "nuxt build",
     "preview": "nuxt build && node .output/server/index.mjs",
-    "tunnel": "cloudflared tunnel --url http://localhost:3000",
+    "tunnel": "nuxt dev --tunnel",
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
