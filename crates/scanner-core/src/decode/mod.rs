@@ -2,4 +2,4 @@
 
 pub mod rxing_backend;
 
-pub use rxing_backend::RxingDecoder;
+pub use rxing_backend::{Effort, RxingDecoder};

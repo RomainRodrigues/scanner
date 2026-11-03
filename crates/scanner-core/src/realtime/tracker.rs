@@ -9,25 +9,39 @@ use crate::result::ScanResult;
 use std::collections::HashMap;
 use web_time::{Duration, Instant};
 
-/// Tracks recently detected barcodes to prevent duplicate reports.
+/// How long a not-yet-confirmed candidate stays alive without being seen again.
+const CANDIDATE_WINDOW: Duration = Duration::from_millis(1000);
+
+/// Tracks recently detected barcodes to prevent duplicate reports, and
+/// requires several agreeing reads for symbologies prone to misreads.
 pub struct FrameTracker {
     /// Map of barcode content → last time it was reported
     seen: HashMap<String, Instant>,
+    /// Weak-format reads waiting for confirmation: content → (reads, last read)
+    candidates: HashMap<String, (u32, Instant)>,
     /// How long before the same code can be reported again
     cooldown: Duration,
+    /// Reads required before a weak-format code is reported
+    weak_confirmations: u32,
 }
 
 impl FrameTracker {
-    /// Create a new tracker with the given cooldown duration.
-    pub fn new(cooldown_ms: u64) -> Self {
+    /// Create a new tracker.
+    ///
+    /// - `cooldown_ms`: delay before the same content can be reported again.
+    /// - `weak_confirmations`: reads needed for weak formats (see
+    ///   [`BarcodeFormat::is_weak`](crate::BarcodeFormat::is_weak)); `<= 1` disables it.
+    pub fn new(cooldown_ms: u64, weak_confirmations: u32) -> Self {
         Self {
             seen: HashMap::new(),
+            candidates: HashMap::new(),
             cooldown: Duration::from_millis(cooldown_ms),
+            weak_confirmations: weak_confirmations.max(1),
         }
     }
 
     /// Filter a list of scan results, returning only those that are new
-    /// (not seen within the cooldown period).
+    /// (not seen within the cooldown period, and confirmed if needed).
     ///
     /// Updates the internal "seen" timestamp for each returned result.
     pub fn filter_new(&mut self, results: Vec<ScanResult>) -> Vec<ScanResult> {
@@ -37,6 +51,8 @@ impl FrameTracker {
         // Prune old entries first
         self.seen
             .retain(|_, last_seen| now.duration_since(*last_seen) < cooldown * 2);
+        self.candidates
+            .retain(|_, (_, last)| now.duration_since(*last) < CANDIDATE_WINDOW);
 
         let mut new_results = Vec::new();
         for result in results {
@@ -45,11 +61,25 @@ impl FrameTracker {
                 .get(&result.text)
                 .map(|last| now.duration_since(*last) >= cooldown)
                 .unwrap_or(true);
-
-            if is_new {
-                self.seen.insert(result.text.clone(), now);
-                new_results.push(result);
+            if !is_new {
+                continue;
             }
+
+            if result.format.is_weak() && self.weak_confirmations > 1 {
+                let entry = self
+                    .candidates
+                    .entry(result.text.clone())
+                    .or_insert((0, now));
+                entry.0 += 1;
+                entry.1 = now;
+                if entry.0 < self.weak_confirmations {
+                    continue;
+                }
+                self.candidates.remove(&result.text);
+            }
+
+            self.seen.insert(result.text.clone(), now);
+            new_results.push(result);
         }
 
         new_results
@@ -72,6 +102,7 @@ impl FrameTracker {
     /// Reset all tracking state.
     pub fn reset(&mut self) {
         self.seen.clear();
+        self.candidates.clear();
     }
 
     /// Number of codes currently in cooldown.
@@ -89,21 +120,44 @@ mod tests {
     use super::*;
     use crate::result::{BarcodeFormat, Point, ScanResult};
 
-    fn make_result(text: &str) -> ScanResult {
+    fn make(text: &str, format: BarcodeFormat) -> ScanResult {
         ScanResult {
             text: text.to_string(),
-            format: BarcodeFormat::QrCode,
+            format,
             raw_bytes: None,
             points: vec![Point::new(0.0, 0.0)],
-            confidence: 1.0,
-            orientation: 0.0,
             timestamp_ms: 0,
         }
     }
 
+    fn make_result(text: &str) -> ScanResult {
+        make(text, BarcodeFormat::QrCode)
+    }
+
+    #[test]
+    fn test_weak_format_needs_confirmation() {
+        let mut tracker = FrameTracker::new(2000, 2);
+        assert!(tracker
+            .filter_new(vec![make("ABC", BarcodeFormat::Code39)])
+            .is_empty());
+        assert_eq!(
+            tracker
+                .filter_new(vec![make("ABC", BarcodeFormat::Code39)])
+                .len(),
+            1
+        );
+        // Strong formats are reported immediately.
+        assert_eq!(
+            tracker
+                .filter_new(vec![make("123", BarcodeFormat::Ean13)])
+                .len(),
+            1
+        );
+    }
+
     #[test]
     fn test_first_detection_passes() {
-        let mut tracker = FrameTracker::new(2000);
+        let mut tracker = FrameTracker::new(2000, 1);
         let results = vec![make_result("hello")];
         let filtered = tracker.filter_new(results);
         assert_eq!(filtered.len(), 1);
@@ -111,7 +165,7 @@ mod tests {
 
     #[test]
     fn test_duplicate_in_cooldown_filtered() {
-        let mut tracker = FrameTracker::new(2000);
+        let mut tracker = FrameTracker::new(2000, 1);
         let r1 = vec![make_result("hello")];
         let r2 = vec![make_result("hello")];
 
@@ -126,7 +180,7 @@ mod tests {
 
     #[test]
     fn test_different_codes_both_pass() {
-        let mut tracker = FrameTracker::new(2000);
+        let mut tracker = FrameTracker::new(2000, 1);
         let results = vec![make_result("code1"), make_result("code2")];
         let filtered = tracker.filter_new(results);
         assert_eq!(filtered.len(), 2);
@@ -134,7 +188,7 @@ mod tests {
 
     #[test]
     fn test_zero_cooldown_always_passes() {
-        let mut tracker = FrameTracker::new(0);
+        let mut tracker = FrameTracker::new(0, 1);
         let r1 = vec![make_result("hello")];
         let r2 = vec![make_result("hello")];
         tracker.filter_new(r1);
@@ -145,7 +199,7 @@ mod tests {
 
     #[test]
     fn test_clear_cooldown() {
-        let mut tracker = FrameTracker::new(60_000); // 1 minute cooldown
+        let mut tracker = FrameTracker::new(60_000, 1); // 1 minute cooldown
         tracker.filter_new(vec![make_result("hello")]);
         assert!(tracker.is_in_cooldown("hello"));
         tracker.clear_cooldown("hello");

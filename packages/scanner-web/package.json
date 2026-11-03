@@ -1,0 +1,51 @@
+{
+  "name": "@gueshbzh-perso/scanner",
+  "version": "0.4.0",
+  "description": "Fast QR code & barcode scanning for the web: camera, WebGL frame pipeline, Web Worker and Rust/WebAssembly decoder.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/romainrodrigues/scanner"
+  },
+  "keywords": [
+    "barcode",
+    "qrcode",
+    "scanner",
+    "wasm",
+    "webassembly",
+    "webgl",
+    "ean",
+    "code128",
+    "datamatrix"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./worker": "./dist/worker.js",
+    "./wasm/*": "./dist/wasm/*",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "build:ts": "tsc -p tsconfig.json && node scripts/copy-wasm.mjs",
+    "build": "npm run build:wasm && npm run build:ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "demo": "npm run build && node scripts/serve.mjs",
+    "test:e2e": "node scripts/e2e.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.48.0",
+    "typescript": "^5.6.3"
+  }
+}

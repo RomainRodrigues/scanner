@@ -7,9 +7,9 @@
 //! - Multi-format support: QR Code, Data Matrix, Aztec, PDF417, Code 128/39/93,
 //!   EAN-13/8, UPC-A/E, ITF, Codabar, and more
 //! - Adaptive preprocessing pipeline for robust scanning (blur, low-light, angles)
-//! - Real-time scanning with stateful `ScanSession` (frame dedup, multi-frame validation)
+//! - Real-time scanning with stateful `ScanSession` (strategy rotation, dedup, multi-frame validation)
 //! - Region of Interest (ROI) for faster scanning on camera streams
-//! - Designed to be embedded into Node.js (napi-rs) and WASM (wasm-bindgen)
+//! - Designed to be embedded into the browser through WebAssembly (`scanner-wasm`)
 //!
 //! ## Quick Start
 //!
@@ -53,4 +53,4 @@ pub use error::ScanError;
 pub use frame::PixelFormat;
 pub use realtime::session::{ScanSession, SessionStats};
 pub use result::{BarcodeFormat, Point, ScanResult};
-pub use scanner::Scanner;
+pub use scanner::{Scanner, Strategy};

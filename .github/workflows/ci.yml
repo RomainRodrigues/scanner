@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate test images
+        run: pip install qrcode pillow python-barcode && python3 tests/images/generate_test_images.py
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace --release
+      - name: Install wasm-bindgen-cli (version pinned by Cargo.lock)
+        run: |
+          VERSION=$(grep -A1 'name = "wasm-bindgen"$' Cargo.lock | sed -n 's/version = "\(.*\)"/\1/p')
+          cargo install wasm-bindgen-cli --version "$VERSION" --locked
+      - name: WASM tests (Node.js)
+        run: cargo test -p scanner-wasm --target wasm32-unknown-unknown --test web
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build the SDK
+        working-directory: packages/scanner-web
+        run: |
+          npm ci
+          npm install -g binaryen
+          npm run build
+      - name: End-to-end (headless Chromium, fake camera)
+        working-directory: packages/scanner-web
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+          npx playwright install --with-deps chromium
+          npm run test:e2e

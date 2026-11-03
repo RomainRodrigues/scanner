@@ -19,85 +19,78 @@ use image::GrayImage;
 /// A new contrast-enhanced grayscale image.
 pub fn clahe(img: &GrayImage, tile_size: u32, clip_limit: f32) -> GrayImage {
     let (width, height) = img.dimensions();
-
     if width == 0 || height == 0 {
         return img.clone();
     }
 
-    let tile_w = tile_size.max(1);
-    let tile_h = tile_size.max(1);
+    let (w, h) = (width as usize, height as usize);
+    let src = img.as_raw();
+    let tile = tile_size.max(1) as usize;
+    let nx = w.div_ceil(tile).max(1);
+    let ny = h.div_ceil(tile).max(1);
 
-    // Number of tiles in each direction (at least 1)
-    let nx = width.div_ceil(tile_w).max(1);
-    let ny = height.div_ceil(tile_h).max(1);
-
-    // Compute a LUT for each tile
-    let mut tile_luts: Vec<Vec<u8>> = Vec::with_capacity((nx * ny) as usize);
-
+    // One LUT per tile, computed straight from the source buffer (no tile copies).
+    let mut luts: Vec<[u8; 256]> = Vec::with_capacity(nx * ny);
     for ty in 0..ny {
         for tx in 0..nx {
-            let x0 = tx * tile_w;
-            let y0 = ty * tile_h;
-            let x1 = (x0 + tile_w).min(width);
-            let y1 = (y0 + tile_h).min(height);
-
-            let tile = image::imageops::crop_imm(img, x0, y0, x1 - x0, y1 - y0).to_image();
-            let lut = compute_clahe_lut(&tile, clip_limit);
-            tile_luts.push(lut);
+            let (x0, y0) = (tx * tile, ty * tile);
+            let (x1, y1) = ((x0 + tile).min(w), (y0 + tile).min(h));
+            let mut hist = [0usize; 256];
+            for y in y0..y1 {
+                for &px in &src[y * w + x0..y * w + x1] {
+                    hist[px as usize] += 1;
+                }
+            }
+            luts.push(lut_from_histogram(hist, (x1 - x0) * (y1 - y0), clip_limit));
         }
     }
 
-    // Bilinear interpolation between the four surrounding tile LUTs
-    let mut output = GrayImage::new(width, height);
+    // Interpolation coordinates only depend on the column / row: precompute them.
+    let axis = |len: usize, n: usize| -> Vec<(usize, usize, f32)> {
+        (0..len)
+            .map(|i| {
+                let f = (i as f32 / tile as f32) - 0.5;
+                let i0 = (f.floor() as i64).clamp(0, n as i64 - 1) as usize;
+                let i1 = (i0 + 1).min(n - 1);
+                (i0, i1, (f - i0 as f32).clamp(0.0, 1.0))
+            })
+            .collect()
+    };
+    let cols = axis(w, nx);
+    let rows = axis(h, ny);
 
-    for y in 0..height {
-        for x in 0..width {
-            let pixel_val = img.get_pixel(x, y)[0] as usize;
-
-            // Find which tile context this pixel falls into (using tile centers)
-            let tx_f = (x as f32 / tile_w as f32) - 0.5;
-            let ty_f = (y as f32 / tile_h as f32) - 0.5;
-
-            let tx0 = (tx_f.floor() as i64).clamp(0, nx as i64 - 1) as u32;
-            let ty0 = (ty_f.floor() as i64).clamp(0, ny as i64 - 1) as u32;
-            let tx1 = (tx0 + 1).min(nx - 1);
-            let ty1 = (ty0 + 1).min(ny - 1);
-
-            let fx = (tx_f - tx0 as f32).clamp(0.0, 1.0);
-            let fy = (ty_f - ty0 as f32).clamp(0.0, 1.0);
-
-            let lut00 = &tile_luts[(ty0 * nx + tx0) as usize];
-            let lut10 = &tile_luts[(ty0 * nx + tx1) as usize];
-            let lut01 = &tile_luts[(ty1 * nx + tx0) as usize];
-            let lut11 = &tile_luts[(ty1 * nx + tx1) as usize];
-
-            // Bilinear interpolation
-            let v00 = lut00[pixel_val] as f32;
-            let v10 = lut10[pixel_val] as f32;
-            let v01 = lut01[pixel_val] as f32;
-            let v11 = lut11[pixel_val] as f32;
-
+    let mut out = vec![0u8; w * h];
+    for (y, &(ty0, ty1, fy)) in rows.iter().enumerate() {
+        let src_row = &src[y * w..(y + 1) * w];
+        let out_row = &mut out[y * w..(y + 1) * w];
+        for (x, &(tx0, tx1, fx)) in cols.iter().enumerate() {
+            let v = src_row[x] as usize;
+            let v00 = luts[ty0 * nx + tx0][v] as f32;
+            let v10 = luts[ty0 * nx + tx1][v] as f32;
+            let v01 = luts[ty1 * nx + tx0][v] as f32;
+            let v11 = luts[ty1 * nx + tx1][v] as f32;
             let top = v00 + fx * (v10 - v00);
             let bot = v01 + fx * (v11 - v01);
-            let val = (top + fy * (bot - top)).round().clamp(0.0, 255.0) as u8;
-
-            output.put_pixel(x, y, image::Luma([val]));
+            out_row[x] = (top + fy * (bot - top)).round().clamp(0.0, 255.0) as u8;
         }
     }
 
-    output
+    GrayImage::from_raw(width, height, out).expect("clahe: same dimensions")
 }
 
 /// Compute a clipped-and-redistributed histogram equalization LUT for one tile.
-fn compute_clahe_lut(tile: &GrayImage, clip_limit: f32) -> Vec<u8> {
-    let n_pixels = (tile.width() * tile.height()) as usize;
-
-    // Build histogram
+#[cfg(test)]
+fn compute_clahe_lut(tile: &GrayImage, clip_limit: f32) -> [u8; 256] {
     let mut hist = [0usize; 256];
     for pixel in tile.pixels() {
         hist[pixel[0] as usize] += 1;
     }
+    lut_from_histogram(hist, (tile.width() * tile.height()) as usize, clip_limit)
+}
 
+/// Clip a histogram, redistribute the excess and turn its CDF into a LUT.
+fn lut_from_histogram(mut hist: [usize; 256], n_pixels: usize, clip_limit: f32) -> [u8; 256] {
+    let n_pixels = n_pixels.max(1);
     // Compute clip threshold (in pixels)
     let clip_threshold = ((clip_limit * n_pixels as f32) / 256.0).max(1.0) as usize;
 
@@ -121,7 +114,7 @@ fn compute_clahe_lut(tile: &GrayImage, clip_limit: f32) -> Vec<u8> {
     }
 
     // Build cumulative distribution function (CDF) → LUT
-    let mut lut = vec![0u8; 256];
+    let mut lut = [0u8; 256];
     let mut cdf = 0usize;
     let scale = 255.0 / n_pixels as f32;
 

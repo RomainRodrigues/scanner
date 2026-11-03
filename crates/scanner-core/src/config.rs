@@ -63,26 +63,27 @@ impl Roi {
         let x = (x_frac * img_width as f32) as u32;
         let y = (y_frac * img_height as f32) as u32;
         // Ensure w/h don't extend beyond the image boundary
-        let w = (w_frac * img_width as f32)
-            .min((img_width.saturating_sub(x)) as f32) as u32;
-        let h = (h_frac * img_height as f32)
-            .min((img_height.saturating_sub(y)) as f32) as u32;
+        let w = (w_frac * img_width as f32).min((img_width.saturating_sub(x)) as f32) as u32;
+        let h = (h_frac * img_height as f32).min((img_height.saturating_sub(y)) as f32) as u32;
         (x, y, w, h)
     }
 }
 
 /// Configuration for the scanner and scan sessions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ScannerConfig {
     /// Barcode formats to look for. `None` means try all supported formats.
     ///
-    /// For best performance, specify only the formats you need.
+    /// For best performance, specify only the formats you need: every extra
+    /// format is an extra decoder run on each frame.
     pub formats: Option<Vec<BarcodeFormat>>,
 
-    /// Enable the adaptive preprocessing pipeline (CLAHE + sharpening + Sauvola binarization).
+    /// Enable the adaptive preprocessing strategies (CLAHE contrast boost and
+    /// CLAHE + unsharp mask + Sauvola binarization).
     ///
-    /// The scanner always attempts a fast scan first. Preprocessing is applied
-    /// only if the fast scan fails, so enabling this has low cost for clean images.
+    /// They only run after the fast path failed. In a [`ScanSession`](crate::ScanSession)
+    /// they are spread over successive frames, so their cost is amortised.
     ///
     /// Default: `true`
     pub preprocessing: bool,
@@ -90,30 +91,29 @@ pub struct ScannerConfig {
     /// If the first scan attempt fails, retry with 90°, 180°, and 270° rotations.
     ///
     /// Useful for images that are known to be rotated (e.g., uploaded photos).
-    /// For real-time camera scanning this is rarely needed.
+    /// Ignored by `ScanSession` (camera frames are scanned in "try harder" mode
+    /// every few frames instead, which already covers rotated 1D codes).
     ///
     /// Default: `false` (set to `true` for static image scanning)
     pub try_rotations: bool,
 
-    /// If all scan attempts fail, retry with an inverted image (white-on-black barcodes).
+    /// Also try to decode an inverted image (white-on-black barcodes).
     ///
     /// Default: `true`
     pub try_invert: bool,
 
     /// Maximum number of barcodes to detect per frame.
     ///
-    /// **Note**: The current backend (rxing) decodes one barcode per call.
-    /// `max_results > 1` is reserved for future multi-barcode support.
-    /// Setting it to 1 (the default) is recommended.
+    /// `1` uses the single-code fast path. Values `> 1` enable rxing's
+    /// multi-barcode reader, which is noticeably slower.
     ///
     /// Default: `1`
     pub max_results: usize,
 
     /// Region of Interest — limits scanning to a sub-area of the frame.
     ///
-    /// `None` means scan the entire frame.
-    /// For real-time camera scanning, a centered ROI (e.g., 60% of the frame)
-    /// dramatically improves performance.
+    /// `None` means scan the entire frame. Result points are always reported
+    /// in the coordinate system of the **full** frame.
     ///
     /// Default: `None` (full frame)
     pub roi: Option<Roi>,
@@ -123,6 +123,23 @@ pub struct ScannerConfig {
     ///
     /// Default: `2000` (2 seconds)
     pub dedup_cooldown_ms: u64,
+
+    /// Number of consecutive frames that must agree before a code of a
+    /// "weak" format (no mandatory checksum: Code 39, Code 93, ITF, Codabar)
+    /// is reported by a `ScanSession`. Protects against misreads on blurry
+    /// frames. `1` disables the check.
+    ///
+    /// Default: `2`
+    pub weak_format_confirmations: u32,
+
+    /// Enable the adaptive frame throttle in `ScanSession`.
+    ///
+    /// Useful when frames are pushed synchronously on the UI thread. Disable
+    /// it when the caller already applies back-pressure (e.g. a Web Worker
+    /// that only receives a new frame once the previous one is processed).
+    ///
+    /// Default: `true`
+    pub adaptive_throttle: bool,
 }
 
 impl Default for ScannerConfig {
@@ -135,6 +152,8 @@ impl Default for ScannerConfig {
             max_results: 1,
             roi: None,
             dedup_cooldown_ms: 2000,
+            weak_format_confirmations: 2,
+            adaptive_throttle: true,
         }
     }
 }
@@ -158,7 +177,7 @@ impl ScannerConfig {
     ///
     /// - Full frame
     /// - Rotation retries enabled
-    /// - More preprocessing
+    /// - Up to 10 codes per image
     pub fn image_file() -> Self {
         Self {
             try_rotations: true,

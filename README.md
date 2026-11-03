@@ -1,188 +1,57 @@
-# Scanner — High-Performance QR Code & Barcode Scanner in Rust
+# Scanner — QR code & barcode scanning for the web
 
-[![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-⚠️ **Work in Progress**: This project is under active development. APIs and configurations are experimental and subject to change.
+⚠️ **Work in progress**: APIs are still experimental.
 
-A robust, high-performance barcode and QR code scanning library written in pure Rust, designed for:
+A barcode and QR code scanner for web apps: a Rust engine compiled to
+WebAssembly, driven by a TypeScript SDK that handles the camera, a WebGL2
+frame pipeline, a Web Worker and the scanning UI. Everything runs on the
+device, with no license key and no network calls.
 
-- 📷 **Real-time camera stream scanning** (not just static images)
-- 🌐 **Node.js native addon** via [napi-rs](https://napi.rs)
-- 🦕 **Browser WASM** via [wasm-bindgen](https://github.com/rustwasm/wasm-bindgen)
-- ⚡ **Performance target: ≥ Strich.io**
+```ts
+import { BarcodeReader } from '@gueshbzh-perso/scanner';
 
-## Supported Formats
-
-| 2D Formats | 1D Formats |
-|-----------|-----------|
-| QR Code (incl. Micro QR) | Code 128 |
-| Data Matrix | Code 39 |
-| Aztec Code | Code 93 |
-| PDF417 | EAN-13, EAN-8 |
-| | UPC-A, UPC-E |
-| | ITF (Interleaved 2-of-5) |
-| | Codabar |
-
-## Architecture
-
-```
-scanner/
-├── crates/
-│   ├── scanner-core/     # Pure Rust engine
-│   ├── scanner-cli/      # Command-line tool (with live webcam)
-│   ├── scanner-napi/     # Node.js native addon
-│   └── scanner-wasm/     # WebAssembly module + browser SDK
+const reader = await BarcodeReader.create({ host: '#scanner', formats: ['qr_code', 'ean_13'] });
+reader.on('detected', (codes) => console.log(codes[0].text));
+await reader.start();
 ```
 
-## Quick Start
+See [`packages/scanner-web/README.md`](packages/scanner-web/README.md) for the full SDK documentation.
 
-### As a Rust library
+## Supported formats
 
-```toml
-[dependencies]
-scanner-core = { path = "crates/scanner-core" }
+| 2D | 1D |
+| --- | --- |
+| QR Code (incl. Micro QR), Data Matrix, Aztec, PDF417 | Code 128, Code 39, Code 93, EAN-13, EAN-8, UPC-A, UPC-E, ITF, Codabar |
+
+## Repository layout
+
+```
+crates/
+  scanner-core/     Rust engine: preprocessing, decoding strategies, real-time session
+  scanner-wasm/     wasm-bindgen bindings (low-level engine API)
+packages/
+  scanner-web/      TypeScript SDK published to npm (+ demo/)
+tests/images/       Test image generator
 ```
 
-```rust
-use scanner_core::{Scanner, ScannerConfig, PixelFormat};
-
-// Static image scanning
-let scanner = Scanner::with_defaults();
-let results = scanner.scan_file("qrcode.png")?;
-println!("Found: {} ({})", results[0].text, results[0].format);
-
-// Real-time camera scanning
-use scanner_core::ScanSession;
-
-let mut session = ScanSession::new(ScannerConfig::realtime());
-
-// In your camera frame callback:
-if let Some(results) = session.process_frame(&rgba_bytes, width, height, PixelFormat::Rgba) {
-    println!("New scan: {}", results[0].text);
-}
-```
-
-### CLI
+## Development
 
 ```bash
-# Build
-cargo build --release -p scanner-cli
+# Rust engine
+python3 tests/images/generate_test_images.py   # pip install qrcode pillow python-barcode
+cargo test --workspace --release
 
-# Real-time webcam scanning
-./target/release/scanner live
-./target/release/scanner live --list      # List cameras
-./target/release/scanner live --camera 1  # Select camera
-
-# Scan a file or directory
-./target/release/scanner scan image.png
-./target/release/scanner scan ./images/ --recursive
-
-# Benchmark
-./target/release/scanner bench ./tests/images/ --iterations 20
-```
-
-### Node.js (napi-rs)
-
-```bash
-cd crates/scanner-napi
+# SDK (needs wasm32-unknown-unknown + wasm-bindgen-cli, see the SDK README)
+cd packages/scanner-web
 npm install
 npm run build
+npm run demo        # http://localhost:8080/demo/
+npm run test:e2e    # headless Chromium with a fake camera
 ```
 
-```javascript
-const { Scanner, ScanSession, PixelFormat } = require('@scanner/native');
-
-// Static scan
-const scanner = new Scanner();
-const results = await scanner.scanFile('./qrcode.png');
-
-// Real-time
-const session = new ScanSession({ roi: { x: 0.2, y: 0.2, width: 0.6, height: 0.6 } });
-const frameResults = session.processFrame(rgbaBuffer, width, height, PixelFormat.Rgba);
-```
-
-### Browser WASM
-
-```bash
-cd crates/scanner-wasm
-wasm-pack build --target web --out-dir pkg --release --weak-refs
-```
-
-```javascript
-import init, { WasmScanner, WasmScanSession } from './pkg/scanner_wasm.js';
-
-await init(); // Initialize the WASM module
-
-// --- Real-time camera stream ---
-const session = new WasmScanSession({ roi: { x: 0.15, y: 0.15, width: 0.7, height: 0.7 } });
-// In your requestAnimationFrame loop:
-// const results = session.processFrameRgba(imageData.data, width, height);
-
-// Recommended: Free memory when stopping the camera for immediate release
-session.free(); 
-
-// --- Static image ---
-const scanner = new WasmScanner();
-// const results = scanner.scanRgba(imageData.data, width, height);
-scanner.free(); // Free memory when done
-```
-
-> 🛡️ **WASM Memory Management**
-> The WASM module is built with the `--weak-refs` flag, so the JavaScript `FinalizationRegistry` acts as a safety net to automatically free Rust memory when the JS wrapper is garbage collected. However, because GC is non-deterministic, it is **highly recommended** to manually call `.free()` when you are done (e.g. stopping the camera) to immediately release large image buffers and prevent temporary memory spikes.
-
-> **Format strings for WASM/JSON** (serde `snake_case`):
-> `qr_code`, `micro_qr`, `data_matrix`, `aztec`, `pdf417`,
-> `code128`, `code39`, `code93`, `ean13`, `ean8`, `upc_a`, `upc_e`, `itf`, `codabar`
-
-## Performance
-
-The scanner uses a layered pipeline optimized for speed:
-
-1. **Fast path** — Attempt decode on raw grayscale immediately (0 preprocessing)
-2. **Contrast path** — CLAHE contrast enhancement only
-3. **Full pipeline** — CLAHE + Unsharp Mask + Sauvola adaptive binarization
-4. **Rotation retries** — 90°/180°/270° (configurable, off by default for realtime)
-5. **Invert retry** — For white-on-black barcodes
-
-For real-time camera frames, the fast path handles most clean captures in **< 10ms**.
-
-### Frame Throttling
-
-`ScanSession` automatically adapts its scanning rate based on the measured scan duration:
-- If scanning takes < 15ms → scan every frame
-- If scanning takes 30ms → scan 1-in-2 frames
-- Capped at 1-in-8 frames minimum
-
-### ROI (Region of Interest)
-
-Restrict scanning to a sub-area of the frame:
-
-```rust
-use scanner_core::{ScannerConfig, Roi};
-
-let config = ScannerConfig {
-    roi: Some(Roi::centered(0.6)), // Scan only the central 60%
-    ..ScannerConfig::realtime()
-};
-```
-
-A 60% ROI reduces the number of pixels processed by ~64%.
-
-## Running Tests
-
-```bash
-cargo test --workspace
-```
-
-Place test images in `tests/images/` following the structure in the `tests/` directory.
-
-## Roadmap
-
-- [x] Phase 1 — Core library (`scanner-core`)
-- [x] Phase 2 — CLI (`scanner-cli`)
-- [x] Phase 3 — Node.js native addon (`scanner-napi`)
-- [x] Phase 4 — WASM + Browser SDK (`scanner-wasm`)
+French documentation: [DOCUMENTATION_FR.md](DOCUMENTATION_FR.md).
 
 ## License
 

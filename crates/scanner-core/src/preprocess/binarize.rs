@@ -19,8 +19,8 @@ use image::GrayImage;
 /// # Parameters
 /// - `img`: Input grayscale image
 /// - `window_radius`: Radius of the local neighborhood (window size = 2×radius+1).
-///   Larger radius handles bigger lighting gradients but is slower.
-///   Typical range: 7–25. Use 15 for barcode scanning.
+///   Larger radius handles bigger lighting gradients. The cost does not depend
+///   on the radius thanks to integral images. Use 15 for barcode scanning.
 /// - `k`: Sensitivity parameter. Higher = more aggressive thresholding.
 ///   Typical range: 0.1–0.5. Use 0.15 for barcodes.
 ///
@@ -28,115 +28,73 @@ use image::GrayImage;
 /// A binary image (0 = black, 255 = white).
 pub fn sauvola_binarize(img: &GrayImage, window_radius: u32, k: f64) -> GrayImage {
     let (width, height) = img.dimensions();
+    if width == 0 || height == 0 {
+        return img.clone();
+    }
     const R: f64 = 128.0; // Dynamic range factor for 8-bit images
 
-    // Build integral images for fast local mean and variance computation
-    let (sum_table, sum_sq_table) = build_integral_images(img);
+    let (w, h) = (width as usize, height as usize);
+    let src = img.as_raw();
+    let (sum, sum_sq) = build_integral_images(src, w, h);
+    let iw = w + 1;
+    let r = window_radius as usize;
 
-    let mut output = GrayImage::new(width, height);
-    let radius = window_radius as i64;
+    let mut out = vec![0u8; w * h];
+    for y in 0..h {
+        let y0 = y.saturating_sub(r);
+        let y1 = (y + r).min(h - 1) + 1;
+        let row_top = y0 * iw;
+        let row_bot = y1 * iw;
+        for x in 0..w {
+            let x0 = x.saturating_sub(r);
+            let x1 = (x + r).min(w - 1) + 1;
+            let count = ((x1 - x0) * (y1 - y0)) as f64;
 
-    for y in 0..height {
-        for x in 0..width {
-            let pixel = img.get_pixel(x, y)[0] as f64;
+            let s = sum[row_bot + x1] + sum[row_top + x0] - sum[row_top + x1] - sum[row_bot + x0];
+            let sq = sum_sq[row_bot + x1] + sum_sq[row_top + x0]
+                - sum_sq[row_top + x1]
+                - sum_sq[row_bot + x0];
 
-            // Window bounds (clamped to image)
-            let x0 = (x as i64 - radius).max(0) as u32;
-            let y0 = (y as i64 - radius).max(0) as u32;
-            let x1 = (x as i64 + radius).min(width as i64 - 1) as u32;
-            let y1 = (y as i64 + radius).min(height as i64 - 1) as u32;
-
-            let count = ((x1 - x0 + 1) * (y1 - y0 + 1)) as f64;
-
-            let sum = integral_rect(&sum_table, x0, y0, x1, y1, width);
-            let sum_sq = integral_rect(&sum_sq_table, x0, y0, x1, y1, width);
-
-            let mean = sum / count;
-            let variance = (sum_sq / count) - (mean * mean);
+            let mean = s as f64 / count;
+            let variance = (sq as f64 / count) - mean * mean;
             let std_dev = variance.max(0.0).sqrt();
-
-            // Sauvola threshold
             let threshold = mean * (1.0 + k * (std_dev / R - 1.0));
 
-            let val = if pixel >= threshold { 255u8 } else { 0u8 };
-            output.put_pixel(x, y, image::Luma([val]));
+            out[y * w + x] = if src[y * w + x] as f64 >= threshold {
+                255
+            } else {
+                0
+            };
         }
     }
 
-    output
+    GrayImage::from_raw(width, height, out).expect("sauvola: same dimensions")
 }
 
-/// Build integral image (summed area table) and squared integral image.
+/// Build the integral image (summed area table) and squared integral image.
 ///
-/// Integral image allows computing the sum over any rectangular region in O(1).
-fn build_integral_images(img: &GrayImage) -> (Vec<f64>, Vec<f64>) {
-    let (width, height) = img.dimensions();
-    let size = (width * height) as usize;
-    let mut sum = vec![0.0f64; size];
-    let mut sum_sq = vec![0.0f64; size];
+/// Both tables have an extra zero row and column at the top/left, so that
+/// entry `(y + 1) * (w + 1) + (x + 1)` is the sum over `[0, x] × [0, y]`.
+fn build_integral_images(src: &[u8], w: usize, h: usize) -> (Vec<u64>, Vec<u64>) {
+    let iw = w + 1;
+    let mut sum = vec![0u64; iw * (h + 1)];
+    let mut sum_sq = vec![0u64; iw * (h + 1)];
 
-    for y in 0..height {
-        for x in 0..width {
-            let val = img.get_pixel(x, y)[0] as f64;
-            let idx = (y * width + x) as usize;
-
-            let above = if y > 0 {
-                sum[((y - 1) * width + x) as usize]
-            } else {
-                0.0
-            };
-            let left = if x > 0 {
-                sum[(y * width + x - 1) as usize]
-            } else {
-                0.0
-            };
-            let above_left = if x > 0 && y > 0 {
-                sum[((y - 1) * width + x - 1) as usize]
-            } else {
-                0.0
-            };
-
-            sum[idx] = val + above + left - above_left;
-
-            let sq = val * val;
-            let above_sq = if y > 0 {
-                sum_sq[((y - 1) * width + x) as usize]
-            } else {
-                0.0
-            };
-            let left_sq = if x > 0 {
-                sum_sq[(y * width + x - 1) as usize]
-            } else {
-                0.0
-            };
-            let above_left_sq = if x > 0 && y > 0 {
-                sum_sq[((y - 1) * width + x - 1) as usize]
-            } else {
-                0.0
-            };
-
-            sum_sq[idx] = sq + above_sq + left_sq - above_left_sq;
+    for y in 0..h {
+        let mut row_sum = 0u64;
+        let mut row_sq = 0u64;
+        let src_row = &src[y * w..(y + 1) * w];
+        for (x, &px) in src_row.iter().enumerate() {
+            let v = px as u64;
+            row_sum += v;
+            row_sq += v * v;
+            let idx = (y + 1) * iw + x + 1;
+            sum[idx] = sum[idx - iw] + row_sum;
+            sum_sq[idx] = sum_sq[idx - iw] + row_sq;
         }
     }
 
     (sum, sum_sq)
-}
-
-/// Query the rectangular sum from an integral image.
-///
-/// Computes the sum over the rectangle [x0,x1] × [y0,y1] (inclusive).
-#[inline]
-fn integral_rect(table: &[f64], x0: u32, y0: u32, x1: u32, y1: u32, width: u32) -> f64 {
-    let get = |x: i64, y: i64| -> f64 {
-        if x < 0 || y < 0 {
-            0.0
-        } else {
-            table[(y as u32 * width + x as u32) as usize]
-        }
-    };
-
-    get(x1 as i64, y1 as i64) - get(x0 as i64 - 1, y1 as i64) - get(x1 as i64, y0 as i64 - 1)
-        + get(x0 as i64 - 1, y0 as i64 - 1)
 }
 
 #[cfg(test)]
@@ -173,8 +131,9 @@ mod tests {
         img.put_pixel(0, 1, image::Luma([3u8]));
         img.put_pixel(1, 1, image::Luma([4u8]));
 
-        let (sum, _) = build_integral_images(&img);
-        // Total sum should be 1+2+3+4 = 10
-        assert_eq!(sum[3] as u32, 10);
+        let (sum, sq) = build_integral_images(img.as_raw(), 2, 2);
+        // Bottom-right entry holds the total: 1+2+3+4 = 10
+        assert_eq!(sum[8], 10);
+        assert_eq!(sq[8], 1 + 4 + 9 + 16);
     }
 }

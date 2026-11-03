@@ -3,83 +3,139 @@
 //! rxing is a pure-Rust port of the ZXing (Zebra Crossing) Java library.
 //! It supports QR Code, Data Matrix, Aztec, PDF417, Code 128/39/93, EAN-13/8,
 //! UPC-A/E, ITF, Codabar, and more.
-//!
-//! NOTE: rxing 0.9 changed its API:
-//! - `DecodeHints` is now a plain struct (not a HashMap)
-//! - `BufferedImageLuminanceSource` requires feature `image` + `decoders`
-//! - `RXingResult` is available via `rxing::RXingResult`
 
 use crate::config::ScannerConfig;
 use crate::error::ScanError;
 use crate::result::{BarcodeFormat, ScanResult};
 use image::GrayImage;
 use rxing::common::HybridBinarizer;
+use rxing::multi::{GenericMultipleBarcodeReader, MultipleBarcodeReader};
 use rxing::{
-    BinaryBitmap, DecodeHints, Exceptions, Luma8LuminanceSource, MultiFormatReader, Reader,
+    BinaryBitmap, DecodeHints, Exceptions, Luma8LuminanceSource, MultiFormatReader, RXingResult,
+    Reader,
 };
 
-/// Wraps rxing's MultiFormatReader with our configuration.
+/// How hard the decoder should look for a code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Effort {
+    /// rxing default: a handful of scan lines for 1D codes, no rotation.
+    /// This is the per-frame fast path.
+    Fast,
+    /// rxing `TryHarder`: many more scan lines and a 90° retry for 1D codes.
+    Hard,
+}
+
+/// Wraps rxing's readers with our configuration.
 pub struct RxingDecoder {
-    hints: DecodeHints,
+    hints_fast: DecodeHints,
+    hints_hard: DecodeHints,
     /// Formats the caller explicitly requested. When `Some`, any decoded result
     /// whose format is not in this list is discarded (post-decode filter).
     ///
     /// This is necessary because rxing's `PossibleFormats` hint is not always
-    /// strictly respected, especially when `TryHarder = true`.
+    /// strictly respected.
     allowed_formats: Option<Vec<BarcodeFormat>>,
+    max_results: usize,
 }
 
 impl RxingDecoder {
     /// Create a new decoder from a `ScannerConfig`.
     pub fn new(config: &ScannerConfig) -> Self {
-        let allowed_formats = config.formats.clone();
-        let hints = build_hints(config);
-        Self { hints, allowed_formats }
+        let mut hints_fast = build_hints(config);
+        hints_fast.TryHarder = Some(false);
+        let mut hints_hard = build_hints(config);
+        hints_hard.TryHarder = Some(true);
+        Self {
+            hints_fast,
+            hints_hard,
+            allowed_formats: config.formats.clone(),
+            max_results: config.max_results.max(1),
+        }
+    }
+
+    /// Decode with the fast effort level.
+    pub fn decode(&self, img: &GrayImage) -> Result<Vec<ScanResult>, ScanError> {
+        self.decode_with(img, Effort::Fast)
     }
 
     /// Attempt to decode one or more barcodes from a grayscale image.
     ///
     /// Returns `Ok(vec)` with at least one result, or `Err(ScanError::NotFound)`.
-    ///
-    /// If `allowed_formats` was configured, results with an unexpected format are
-    /// rejected — even if rxing decoded something. This is the authoritative filter.
-    pub fn decode(&self, img: &GrayImage) -> Result<Vec<ScanResult>, ScanError> {
+    /// Result points are in the coordinate system of `img`.
+    pub fn decode_with(
+        &self,
+        img: &GrayImage,
+        effort: Effort,
+    ) -> Result<Vec<ScanResult>, ScanError> {
         let (width, height) = img.dimensions();
-        let luma_data: Vec<u8> = img.pixels().map(|p| p[0]).collect();
-
-        // Wrap in rxing's Luma8LuminanceSource (available in 0.9 with `decoders` feature)
-        let source = Luma8LuminanceSource::new(luma_data, width, height);
-        let binarizer = HybridBinarizer::new(source);
-        let mut bitmap = BinaryBitmap::new(binarizer);
-
-        let mut reader = MultiFormatReader::default();
-        let hints = self.hints.clone();
-
-        match reader.decode_with_hints(&mut bitmap, &hints) {
-            Ok(result) => {
-                let scan = ScanResult::from_rxing(&result);
-
-                // Post-decode format filter: rxing's PossibleFormats hint is not
-                // strictly enforced (especially with TryHarder). We apply an
-                // authoritative check here to guarantee callers only receive the
-                // formats they requested.
-                if let Some(ref allowed) = self.allowed_formats {
-                    if !allowed.contains(&scan.format) {
-                        return Err(ScanError::NotFound);
-                    }
-                }
-
-                Ok(vec![scan])
-            }
-            Err(Exceptions::NotFoundException(_)) => Err(ScanError::NotFound),
-            Err(e) => Err(ScanError::DecodingError(format!("{e:?}"))),
-        }
+        self.decode_raw(img.as_raw().clone(), width, height, effort)
     }
 
     /// Attempt to decode an inverted image (white bars on black background).
-    pub fn decode_inverted(&self, img: &GrayImage) -> Result<Vec<ScanResult>, ScanError> {
-        let inverted = invert_grayscale(img);
-        self.decode(&inverted)
+    pub fn decode_inverted(
+        &self,
+        img: &GrayImage,
+        effort: Effort,
+    ) -> Result<Vec<ScanResult>, ScanError> {
+        let (width, height) = img.dimensions();
+        let inverted: Vec<u8> = img.as_raw().iter().map(|&p| 255 - p).collect();
+        self.decode_raw(inverted, width, height, effort)
+    }
+
+    fn decode_raw(
+        &self,
+        luma: Vec<u8>,
+        width: u32,
+        height: u32,
+        effort: Effort,
+    ) -> Result<Vec<ScanResult>, ScanError> {
+        let hints = match effort {
+            Effort::Fast => &self.hints_fast,
+            Effort::Hard => &self.hints_hard,
+        };
+
+        let source = Luma8LuminanceSource::new(luma, width, height);
+        let mut bitmap = BinaryBitmap::new(HybridBinarizer::new(source));
+
+        let raw: Vec<RXingResult> = if self.max_results > 1 {
+            let mut reader = GenericMultipleBarcodeReader::new(MultiFormatReader::default());
+            reader
+                .decode_multiple_with_hints(&mut bitmap, hints)
+                .map_err(map_error)?
+        } else {
+            let mut reader = MultiFormatReader::default();
+            vec![reader
+                .decode_with_hints(&mut bitmap, hints)
+                .map_err(map_error)?]
+        };
+
+        let results: Vec<ScanResult> = raw
+            .iter()
+            .map(ScanResult::from_rxing)
+            // Post-decode format filter: rxing's PossibleFormats hint is not
+            // strictly enforced, so this is the authoritative check.
+            .filter(|r| match &self.allowed_formats {
+                Some(allowed) => allowed.contains(&r.format),
+                None => true,
+            })
+            .take(self.max_results)
+            .collect();
+
+        if results.is_empty() {
+            Err(ScanError::NotFound)
+        } else {
+            Ok(results)
+        }
+    }
+}
+
+/// Checksum / format failures just mean "nothing readable here" for a scanner.
+fn map_error(e: Exceptions) -> ScanError {
+    match e {
+        Exceptions::NotFoundException(_)
+        | Exceptions::ChecksumException(_)
+        | Exceptions::FormatException(_) => ScanError::NotFound,
+        other => ScanError::DecodingError(format!("{other:?}")),
     }
 }
 
@@ -87,8 +143,6 @@ impl RxingDecoder {
 fn build_hints(config: &ScannerConfig) -> DecodeHints {
     let mut hints = DecodeHints::default();
 
-    // Pass requested formats as a hint to rxing (best-effort — not strictly enforced).
-    // The authoritative filter is applied post-decode in `RxingDecoder::decode`.
     if let Some(formats) = &config.formats {
         let rxing_formats: std::collections::HashSet<rxing::BarcodeFormat> =
             formats.iter().filter_map(format_to_rxing).collect();
@@ -97,11 +151,6 @@ fn build_hints(config: &ScannerConfig) -> DecodeHints {
             hints.PossibleFormats = Some(rxing_formats);
         }
     }
-
-    // TryHarder enables multi-scale and rotation attempts inside rxing.
-    // Disable it when the caller requests a strict format filter: TryHarder can
-    // cause rxing to ignore PossibleFormats and try all readers anyway.
-    hints.TryHarder = Some(config.formats.is_none());
 
     hints
 }
@@ -129,11 +178,4 @@ fn format_to_rxing(f: &BarcodeFormat) -> Option<rxing::BarcodeFormat> {
         // Unknown has no rxing equivalent — exclude from hints.
         BarcodeFormat::Unknown => None,
     }
-}
-
-/// Invert a grayscale image (255 - pixel).
-fn invert_grayscale(img: &GrayImage) -> GrayImage {
-    let (w, h) = img.dimensions();
-    let data: Vec<u8> = img.pixels().map(|p| 255u8.saturating_sub(p[0])).collect();
-    GrayImage::from_raw(w, h, data).expect("invert: same dimensions")
 }

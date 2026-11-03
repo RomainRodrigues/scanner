@@ -10,18 +10,23 @@ description = "WebAssembly bindings for the scanner QR/barcode library"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-scanner-core = { path = "../scanner-core" }
-wasm-bindgen = "0.2"
+scanner-core = { path = "../scanner-core", default-features = false }
+wasm-bindgen = "0.2.100"
 js-sys = "0.3"
 serde = { workspace = true }
 serde-wasm-bindgen = "0.6"
-tsify = "0.4"
-getrandom = { version = "0.2", features = ["js"] }
+tsify = { version = "0.4", default-features = false, features = ["js"] }
 console_error_panic_hook = "0.1"
-chrono = { version = "0.4", features = ["wasmbind"] }
-web-sys = { version = "0.3.102", features = ["console"] }
+# rxing timestamps every decoded result with `chrono::Utc::now()`. Without the
+# `wasmbind` feature chrono falls back to `std::time`, which panics on
+# wasm32-unknown-unknown ("time not implemented on this platform").
+chrono = { version = "0.4", default-features = false, features = ["clock", "wasmbind"] }
+serde_bytes = "0.11"
+
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
+# Encoders are only needed to synthesise test codes.
+rxing = { workspace = true, features = ["encoders"] }
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = ["-O4", "--enable-simd", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+wasm-opt = ["-O3", "--enable-simd", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]

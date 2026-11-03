@@ -1,52 +1,54 @@
 //! WebAssembly bindings for scanner-core.
 //!
-//! Exposes the QR/barcode scanning engine to the browser via wasm-bindgen.
+//! This is the low-level engine. Most applications should use the
+//! `@gueshbzh-perso/scanner` TypeScript SDK (`packages/scanner-web`), which
+//! wraps this module with camera management, a WebGL frame pipeline, a Web
+//! Worker and a UI overlay.
 //!
 //! # Browser Usage
 //!
 //! ```javascript
 //! import init, { WasmScanner, WasmScanSession } from './scanner_wasm.js';
 //!
-//! await init(); // loads the WASM module
+//! await init();
 //!
-//! // Static image scan (from canvas ImageData)
+//! // One-shot scan of an ImageData
 //! const scanner = new WasmScanner({ formats: ["qr_code", "code_128"] });
-//! const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-//! const results = scanner.scanRgba(imageData.data, canvas.width, canvas.height);
-//! if (results.length > 0) console.log(results[0].text);
+//! const results = scanner.scanRgba(imageData.data, imageData.width, imageData.height);
 //!
-//! // Real-time camera scanning (from requestAnimationFrame)
-//! const session = new WasmScanSession({ roi: { x: 0.2, y: 0.2, width: 0.6, height: 0.6 } });
-//! function tick() {
-//!   ctx.drawImage(video, 0, 0);
-//!   const { data, width, height } = ctx.getImageData(0, 0, vw, vh);
-//!   const result = session.processFrameRgba(data, width, height);
-//!   if (result) showResult(result);
-//!   requestAnimationFrame(tick);
-//! }
+//! // Real-time: write pixels straight into WASM memory (no extra copy)
+//! const session = new WasmScanSession({ adaptiveThrottle: false });
+//! const view = session.frameBuffer(width * height);   // luma, 1 byte / px
+//! view.set(lumaPixels);
+//! const fresh = session.processFrameBuffer(width, height, "luma");
 //! ```
 
 #![deny(clippy::all)]
 use scanner_core::config::Roi as CoreRoi;
 use scanner_core::{
-    PixelFormat, ScanSession as CoreScanSession, Scanner as CoreScanner, ScannerConfig,
+    BarcodeFormat, PixelFormat, ScanError, ScanSession as CoreScanSession, Scanner as CoreScanner,
+    ScannerConfig,
 };
+use serde::{Deserialize, Serialize};
+use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
-// Initialise the panic hook as soon as the WASM module is loaded.
-// This ensures Rust panics are reported to the browser console even if no
-// WasmScanner or WasmScanSession has been constructed yet.
+// Report Rust panics to the browser console as soon as the module is loaded.
 #[wasm_bindgen(start)]
 pub fn wasm_init() {
     console_error_panic_hook::set_once();
 }
 
+/// Version of the scanner engine.
+#[wasm_bindgen]
+pub fn version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
 #[wasm_bindgen(typescript_custom_section)]
 const TS_APPEND_CONTENT: &'static str = r#"
-/** 
- * Barcode formats supported by the scanner.
- */
-export type BarcodeFormat = 
+/** Barcode formats supported by the scanner. */
+export type BarcodeFormat =
   | "qr_code"
   | "micro_qr"
   | "data_matrix"
@@ -62,71 +64,132 @@ export type BarcodeFormat =
   | "itf"
   | "codabar"
   | "unknown";
+
+/** Layout of a raw pixel buffer. */
+export type PixelFormat = "rgba" | "rgb" | "luma";
 "#;
 
-// ── JS-facing result type ─────────────────────────────────────────────────────
+// ── JS-facing types ───────────────────────────────────────────────────────────
 
-/// A detected barcode result, serialized as a JS object.
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Clone)]
+/// A point in frame pixel coordinates.
+#[derive(Serialize, Tsify)]
+#[tsify(into_wasm_abi)]
+pub struct Point {
+    pub x: f32,
+    pub y: f32,
+}
+
+/// A detected barcode.
+#[derive(Serialize, Tsify)]
+#[tsify(into_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanResult {
-    /// Decoded text content of the barcode.
+    /// Decoded text content.
     pub text: String,
-    /// Barcode format (e.g. "QR Code", "EAN-13").
-    pub format: String,
-    /// Detected corner points as flat [x0,y0, x1,y1, ...] array.
-    pub points: Vec<f32>,
-    /// Confidence score [0.0, 1.0].
-    pub confidence: f32,
-    /// Rotation angle in degrees.
-    pub orientation: f32,
-    /// Unix timestamp (ms) when the scan completed.
+    /// Barcode format, same spelling as the `formats` config option.
+    #[tsify(type = "BarcodeFormat")]
+    pub format: BarcodeFormat,
+    /// Location of the code in the coordinates of the submitted frame.
+    pub points: Vec<Point>,
+    /// Raw payload bytes, when available (binary QR codes…).
+    #[serde(with = "serde_bytes")]
+    #[tsify(type = "Uint8Array | undefined", optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_bytes: Option<Vec<u8>>,
+    /// Unix timestamp (ms) of the detection.
     pub timestamp_ms: f64,
 }
 
-impl From<scanner_core::ScanResult> for ScanResult {
-    fn from(r: scanner_core::ScanResult) -> Self {
-        let points: Vec<f32> = r.points.iter().flat_map(|p| [p.x, p.y]).collect();
+impl From<&scanner_core::ScanResult> for ScanResult {
+    fn from(r: &scanner_core::ScanResult) -> Self {
         Self {
-            text: r.text,
-            format: format!("{}", r.format),
-            points,
-            confidence: r.confidence,
-            orientation: r.orientation,
+            text: r.text.clone(),
+            format: r.format,
+            points: r.points.iter().map(|p| Point { x: p.x, y: p.y }).collect(),
+            raw_bytes: r.raw_bytes.clone(),
             timestamp_ms: r.timestamp_ms as f64,
         }
     }
 }
 
-// ── Config helper ─────────────────────────────────────────────────────────────
+/// Performance statistics of a scan session.
+#[derive(Serialize, Tsify)]
+#[tsify(into_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStats {
+    pub frames_submitted: f64,
+    pub frames_scanned: f64,
+    pub frames_with_detection: f64,
+    pub codes_detected: f64,
+    pub avg_scan_time_ms: f64,
+    pub last_scan_time_ms: f64,
+    pub skip_interval: u32,
+}
 
-use serde::Deserialize;
-use tsify::Tsify;
+fn results_to_js(results: &[scanner_core::ScanResult]) -> JsValue {
+    let out: Vec<ScanResult> = results.iter().map(ScanResult::from).collect();
+    out.serialize(&serde_wasm_bindgen::Serializer::new())
+        .unwrap_or(JsValue::NULL)
+}
 
+fn scan_to_js(r: Result<Vec<scanner_core::ScanResult>, ScanError>) -> Result<JsValue, JsError> {
+    match r {
+        Ok(results) => Ok(results_to_js(&results)),
+        Err(ScanError::NotFound) => Ok(js_sys::Array::new().into()),
+        Err(e) => Err(JsError::new(&format!("Scanner error: {e}"))),
+    }
+}
+
+fn parse_pixel_format(format: &str) -> Result<PixelFormat, JsError> {
+    match format {
+        "rgba" => Ok(PixelFormat::Rgba),
+        "rgb" => Ok(PixelFormat::Rgb),
+        "luma" => Ok(PixelFormat::Luma),
+        other => Err(JsError::new(&format!(
+            "Unsupported pixel format '{other}' (expected \"rgba\", \"rgb\" or \"luma\")"
+        ))),
+    }
+}
+
+// ── Config ────────────────────────────────────────────────────────────────────
+
+/// Scanner configuration. Every field is optional.
 #[derive(Deserialize, Default, Tsify)]
 #[tsify(from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
-#[serde(default)]
+#[serde(rename_all = "camelCase", default)]
 pub struct WasmScanConfig {
+    /// Formats to look for. Default: all. Fewer formats = faster.
     #[tsify(optional)]
-    pub formats: Option<Vec<scanner_core::result::BarcodeFormat>>,
+    pub formats: Option<Vec<BarcodeFormat>>,
+    /// Enable CLAHE / Sauvola fallback strategies. Default: `true`.
     #[tsify(optional)]
     pub preprocessing: Option<bool>,
+    /// Retry rotated images (static scans only). Default: `false`, `true` for `WasmScanner`.
     #[tsify(optional)]
     pub try_rotations: Option<bool>,
+    /// Also look for inverted (light-on-dark) codes. Default: `true`.
     #[tsify(optional)]
     pub try_invert: Option<bool>,
+    /// Maximum codes per frame. `> 1` enables multi-code detection. Default: `1`.
     #[tsify(optional)]
     pub max_results: Option<u32>,
+    /// Region of interest, as fractions of the frame (0.0–1.0).
     #[tsify(optional)]
     pub roi: Option<WasmRoi>,
+    /// Delay before the same content is reported again. Default: `2000`.
     #[tsify(optional)]
     pub dedup_cooldown_ms: Option<f64>,
+    /// Agreeing reads required for Code 39/93, ITF and Codabar. Default: `2`.
+    #[tsify(optional)]
+    pub weak_format_confirmations: Option<u32>,
+    /// Skip frames when scanning gets slow. Disable it when the caller
+    /// already applies back-pressure (Web Worker). Default: `true`.
+    #[tsify(optional)]
+    pub adaptive_throttle: Option<bool>,
 }
 
 #[derive(Deserialize, Tsify)]
 #[tsify(from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
 pub struct WasmRoi {
     pub x: f32,
     pub y: f32,
@@ -134,228 +197,208 @@ pub struct WasmRoi {
     pub height: f32,
 }
 
-fn js_config_to_core(js_cfg: Option<WasmScanConfig>, is_session: bool) -> ScannerConfig {
-    let mut config = ScannerConfig::default();
-    if is_session {
-        config.try_rotations = false;
-    }
+fn js_config_to_core(js_cfg: Option<WasmScanConfig>, base: ScannerConfig) -> ScannerConfig {
+    let mut config = base;
+    let Some(c) = js_cfg else { return config };
 
-    if let Some(js_cfg) = js_cfg {
-        if let Some(formats) = js_cfg.formats {
-            config.formats = Some(formats);
-        }
-        if let Some(pre) = js_cfg.preprocessing {
-            config.preprocessing = pre;
-        }
-        if let Some(rot) = js_cfg.try_rotations {
-            config.try_rotations = rot;
-        }
-        if let Some(inv) = js_cfg.try_invert {
-            config.try_invert = inv;
-        }
-        if let Some(max) = js_cfg.max_results {
-            config.max_results = max as usize;
-        }
-        if let Some(roi) = js_cfg.roi {
-            config.roi = Some(CoreRoi {
-                x: roi.x,
-                y: roi.y,
-                width: roi.width,
-                height: roi.height,
-            });
-        }
-        if let Some(cd) = js_cfg.dedup_cooldown_ms {
-            config.dedup_cooldown_ms = cd as u64;
-        }
+    if let Some(formats) = c.formats {
+        config.formats = if formats.is_empty() {
+            None
+        } else {
+            Some(formats)
+        };
     }
-    
+    if let Some(v) = c.preprocessing {
+        config.preprocessing = v;
+    }
+    if let Some(v) = c.try_rotations {
+        config.try_rotations = v;
+    }
+    if let Some(v) = c.try_invert {
+        config.try_invert = v;
+    }
+    if let Some(v) = c.max_results {
+        config.max_results = v.max(1) as usize;
+    }
+    if let Some(roi) = c.roi {
+        config.roi = Some(CoreRoi {
+            x: roi.x,
+            y: roi.y,
+            width: roi.width,
+            height: roi.height,
+        });
+    }
+    if let Some(v) = c.dedup_cooldown_ms {
+        config.dedup_cooldown_ms = v.max(0.0) as u64;
+    }
+    if let Some(v) = c.weak_format_confirmations {
+        config.weak_format_confirmations = v;
+    }
+    if let Some(v) = c.adaptive_throttle {
+        config.adaptive_throttle = v;
+    }
     config
+}
+
+/// Return a `Uint8Array` view of `buf`, resized to `len` bytes.
+///
+/// The view aliases WASM linear memory: it is invalidated as soon as the
+/// memory grows, so callers must request it right before writing and must not
+/// keep it across calls into the module.
+fn buffer_view(buf: &mut Vec<u8>, len: usize) -> js_sys::Uint8Array {
+    if buf.len() != len {
+        buf.resize(len, 0);
+    }
+    // SAFETY: the view is only valid until the next allocation in the module.
+    // This is documented on `frameBuffer` and the SDK never retains it.
+    unsafe { js_sys::Uint8Array::view(buf) }
 }
 
 // ── WasmScanner ───────────────────────────────────────────────────────────────
 
-/// High-performance barcode scanner for the browser.
-///
-/// Use this for one-shot scanning of images or captured frames.
+/// One-shot scanner for images and captured frames. Runs every enabled
+/// strategy until a code is found.
 #[wasm_bindgen]
 pub struct WasmScanner {
     inner: CoreScanner,
+    buf: Vec<u8>,
 }
 
 #[wasm_bindgen]
 impl WasmScanner {
-    /// Create a new scanner.
-    ///
-    /// @param {Object} [config] - Configuration object.
-    /// @param {string[]} [config.formats] - Formats to scan (e.g. ["qr_code", "code_128"]).
-    /// @param {boolean} [config.preprocessing=true] - Enable adaptive preprocessing.
-    /// @param {boolean} [config.tryRotations=false] - Try rotated images.
-    /// @param {boolean} [config.tryInvert=true] - Try inverted image (white-on-black).
-    /// @param {Object} [config.roi] - Region of Interest {x, y, width, height} (0.0–1.0).
     #[wasm_bindgen(constructor)]
     pub fn new(config: Option<WasmScanConfig>) -> WasmScanner {
-        let core_config = js_config_to_core(config, false);
+        let base = ScannerConfig {
+            try_rotations: true,
+            ..ScannerConfig::default()
+        };
         WasmScanner {
-            inner: CoreScanner::new(core_config),
+            inner: CoreScanner::new(js_config_to_core(config, base)),
+            buf: Vec::new(),
         }
     }
 
-    /// Scan from browser ImageData (RGBA, 4 bytes/pixel).
-    ///
-    /// @param {Uint8ClampedArray} data - The ImageData.data buffer.
-    /// @param {number} width - Frame width in pixels.
-    /// @param {number} height - Frame height in pixels.
-    /// @returns {ScanResult[]} Array of scan results (empty if not found).
-    #[wasm_bindgen(js_name = scanRgba)]
-    pub fn scan_rgba(&self, data: &[u8], width: u32, height: u32) -> Result<Vec<ScanResult>, JsValue> {
-        match self
-            .inner
-            .scan_frame(data, width, height, PixelFormat::Rgba)
-        {
-            Ok(results) => Ok(results.into_iter().map(ScanResult::from).collect()),
-            Err(scanner_core::ScanError::NotFound) => Ok(vec![]),
-            Err(e) => Err(JsValue::from_str(&format!("Scanner error: {e}"))),
-        }
+    /// Scan an RGBA buffer (e.g. `ImageData.data`).
+    #[wasm_bindgen(js_name = scanRgba, unchecked_return_type = "ScanResult[]")]
+    pub fn scan_rgba(&self, data: &[u8], width: u32, height: u32) -> Result<JsValue, JsError> {
+        scan_to_js(
+            self.inner
+                .scan_frame(data, width, height, PixelFormat::Rgba),
+        )
     }
 
-    /// Scan from a raw RGB buffer (3 bytes/pixel).
-    ///
-    /// @param {Uint8Array} data - Raw RGB bytes.
-    /// @param {number} width - Frame width.
-    /// @param {number} height - Frame height.
-    #[wasm_bindgen(js_name = scanRgb)]
-    pub fn scan_rgb(&self, data: &[u8], width: u32, height: u32) -> Result<Vec<ScanResult>, JsValue> {
-        match self.inner.scan_frame(data, width, height, PixelFormat::Rgb) {
-            Ok(results) => Ok(results.into_iter().map(ScanResult::from).collect()),
-            Err(scanner_core::ScanError::NotFound) => Ok(vec![]),
-            Err(e) => Err(JsValue::from_str(&format!("Scanner error: {e}"))),
-        }
+    /// Scan an RGB buffer (3 bytes / pixel).
+    #[wasm_bindgen(js_name = scanRgb, unchecked_return_type = "ScanResult[]")]
+    pub fn scan_rgb(&self, data: &[u8], width: u32, height: u32) -> Result<JsValue, JsError> {
+        scan_to_js(self.inner.scan_frame(data, width, height, PixelFormat::Rgb))
     }
 
-    /// Scan from a grayscale buffer (1 byte/pixel, fastest).
-    ///
-    /// @param {Uint8Array} data - Raw luma bytes.
-    /// @param {number} width - Frame width.
-    /// @param {number} height - Frame height.
-    #[wasm_bindgen(js_name = scanLuma)]
-    pub fn scan_luma(&self, data: &[u8], width: u32, height: u32) -> Result<Vec<ScanResult>, JsValue> {
-        match self
-            .inner
-            .scan_frame(data, width, height, PixelFormat::Luma)
-        {
-            Ok(results) => Ok(results.into_iter().map(ScanResult::from).collect()),
-            Err(scanner_core::ScanError::NotFound) => Ok(vec![]),
-            Err(e) => Err(JsValue::from_str(&format!("Scanner error: {e}"))),
-        }
+    /// Scan a grayscale buffer (1 byte / pixel, fastest).
+    #[wasm_bindgen(js_name = scanLuma, unchecked_return_type = "ScanResult[]")]
+    pub fn scan_luma(&self, data: &[u8], width: u32, height: u32) -> Result<JsValue, JsError> {
+        scan_to_js(
+            self.inner
+                .scan_frame(data, width, height, PixelFormat::Luma),
+        )
+    }
+
+    /// Get a view of an internal buffer of `len` bytes to write pixels into,
+    /// then call `scanFrameBuffer`. **Do not keep the view** across calls.
+    #[wasm_bindgen(js_name = frameBuffer)]
+    pub fn frame_buffer(&mut self, len: usize) -> js_sys::Uint8Array {
+        buffer_view(&mut self.buf, len)
+    }
+
+    /// Scan the pixels previously written into `frameBuffer`.
+    #[wasm_bindgen(js_name = scanFrameBuffer, unchecked_return_type = "ScanResult[]")]
+    pub fn scan_frame_buffer(
+        &self,
+        width: u32,
+        height: u32,
+        #[wasm_bindgen(unchecked_param_type = "PixelFormat")] format: &str,
+    ) -> Result<JsValue, JsError> {
+        let format = parse_pixel_format(format)?;
+        scan_to_js(self.inner.scan_frame(&self.buf, width, height, format))
     }
 }
 
 // ── WasmScanSession ───────────────────────────────────────────────────────────
 
-/// Stateful scan session for real-time camera streams in the browser.
-///
-/// Provides adaptive frame throttling and deduplication.
-///
-/// @example
-/// ```javascript
-/// const session = new WasmScanSession();
-/// function onAnimationFrame() {
-///   ctx.drawImage(video, 0, 0);
-///   const { data } = ctx.getImageData(0, 0, width, height);
-///   const result = session.processFrameRgba(data, width, height);
-///   if (result) console.log('Scanned:', result[0].text);
-///   requestAnimationFrame(onAnimationFrame);
-/// }
-/// ```
+/// Stateful session for camera streams: strategy rotation across frames,
+/// deduplication, multi-frame confirmation and optional throttling.
 #[wasm_bindgen]
 pub struct WasmScanSession {
     inner: CoreScanSession,
+    buf: Vec<u8>,
 }
 
 #[wasm_bindgen]
 impl WasmScanSession {
-    /// Create a new scan session.
-    ///
-    /// @param {Object} [config] - Configuration object.
-    /// @param {string[]} [config.formats] - Formats to scan.
-    /// @param {boolean} [config.preprocessing=true] - Enable adaptive preprocessing.
-    /// @param {boolean} [config.tryInvert=true] - Try inverted image.
-    /// @param {Object} [config.roi] - Region of Interest {x, y, width, height} (0.0–1.0).
-    /// @param {number} [config.dedupCooldownMs=2000] - Dedup cooldown in milliseconds.
     #[wasm_bindgen(constructor)]
     pub fn new(config: Option<WasmScanConfig>) -> WasmScanSession {
-        let core_config = js_config_to_core(config, true);
         WasmScanSession {
-            inner: CoreScanSession::new(core_config),
+            inner: CoreScanSession::new(js_config_to_core(config, ScannerConfig::default())),
+            buf: Vec::new(),
         }
     }
 
-    /// Process a camera frame (RGBA, 4 bytes/pixel — browser ImageData format).
+    /// Process an RGBA camera frame. Returns the **new** codes, or `null`.
+    #[wasm_bindgen(js_name = processFrameRgba, unchecked_return_type = "ScanResult[] | null")]
+    pub fn process_frame_rgba(&mut self, data: &[u8], width: u32, height: u32) -> JsValue {
+        self.process(data, width, height, PixelFormat::Rgba)
+    }
+
+    /// Process a grayscale camera frame (fastest). Returns the **new** codes, or `null`.
+    #[wasm_bindgen(js_name = processFrameLuma, unchecked_return_type = "ScanResult[] | null")]
+    pub fn process_frame_luma(&mut self, data: &[u8], width: u32, height: u32) -> JsValue {
+        self.process(data, width, height, PixelFormat::Luma)
+    }
+
+    /// Get a view of the internal frame buffer resized to `len` bytes.
     ///
-    /// Returns null if the frame was throttled or no new code was detected.
-    /// Returns an array of ScanResult when new barcodes are found.
-    ///
-    /// @param {Uint8ClampedArray} data - The ImageData.data buffer.
-    /// @param {number} width - Frame width in pixels.
-    /// @param {number} height - Frame height in pixels.
-    /// @returns {ScanResult[] | null}
-    #[wasm_bindgen(js_name = processFrameRgba)]
-    pub fn process_frame_rgba(
+    /// Write the frame into it, then call `processFrameBuffer`. This avoids
+    /// the extra copy made when passing a JS array. **Do not keep the view**:
+    /// it becomes invalid whenever WASM memory grows.
+    #[wasm_bindgen(js_name = frameBuffer)]
+    pub fn frame_buffer(&mut self, len: usize) -> js_sys::Uint8Array {
+        buffer_view(&mut self.buf, len)
+    }
+
+    /// Process the frame previously written into `frameBuffer`.
+    #[wasm_bindgen(js_name = processFrameBuffer, unchecked_return_type = "ScanResult[] | null")]
+    pub fn process_frame_buffer(
         &mut self,
-        data: &[u8],
         width: u32,
         height: u32,
-    ) -> Option<Vec<ScanResult>> {
-        self.inner
-            .process_frame(data, width, height, PixelFormat::Rgba)
-            .map(|results| results.into_iter().map(ScanResult::from).collect())
+        #[wasm_bindgen(unchecked_param_type = "PixelFormat")] format: &str,
+    ) -> Result<JsValue, JsError> {
+        let format = parse_pixel_format(format)?;
+        let buf = std::mem::take(&mut self.buf);
+        let out = self.process(&buf, width, height, format);
+        self.buf = buf;
+        Ok(out)
     }
 
-    /// Process a camera frame (grayscale, 1 byte/pixel — fastest path).
-    ///
-    /// @param {Uint8Array} data - Raw luma bytes.
-    /// @param {number} width - Frame width.
-    /// @param {number} height - Frame height.
-    #[wasm_bindgen(js_name = processFrameLuma)]
-    pub fn process_frame_luma(
-        &mut self,
-        data: &[u8],
-        width: u32,
-        height: u32,
-    ) -> Option<Vec<ScanResult>> {
-        self.inner
-            .process_frame(data, width, height, PixelFormat::Luma)
-            .map(|results| results.into_iter().map(ScanResult::from).collect())
+    /// Every code decoded in the last scanned frame, including duplicates
+    /// still in cooldown. Use it to draw live highlights.
+    #[wasm_bindgen(getter, js_name = lastDetections, unchecked_return_type = "ScanResult[]")]
+    pub fn last_detections(&self) -> JsValue {
+        results_to_js(self.inner.last_detections())
     }
 
-    /// Total number of frames submitted (including throttled frames).
-    #[wasm_bindgen(getter, js_name = framesSubmitted)]
-    pub fn frames_submitted(&self) -> u32 {
-        self.inner.stats().frames_submitted as u32
-    }
-
-    /// Number of frames actually scanned (not throttled).
-    #[wasm_bindgen(getter, js_name = framesScanned)]
-    pub fn frames_scanned(&self) -> u32 {
-        self.inner.stats().frames_scanned as u32
-    }
-
-    /// Total unique barcodes detected (after deduplication).
-    #[wasm_bindgen(getter, js_name = codesDetected)]
-    pub fn codes_detected(&self) -> u32 {
-        self.inner.stats().codes_detected as u32
-    }
-
-    /// Average scan time in milliseconds.
-    #[wasm_bindgen(getter, js_name = avgScanTimeMs)]
-    pub fn avg_scan_time_ms(&self) -> f64 {
-        self.inner.stats().avg_scan_time_ms
-    }
-
-    /// Current frame skip interval (1 = every frame, 2 = 1-in-2, etc.).
-    #[wasm_bindgen(getter, js_name = skipInterval)]
-    pub fn skip_interval(&self) -> u32 {
-        self.inner.skip_interval()
+    /// Performance statistics.
+    #[wasm_bindgen(getter)]
+    pub fn stats(&self) -> SessionStats {
+        let s = self.inner.stats();
+        SessionStats {
+            frames_submitted: s.frames_submitted as f64,
+            frames_scanned: s.frames_scanned as f64,
+            frames_with_detection: s.frames_with_detection as f64,
+            codes_detected: s.codes_detected as f64,
+            avg_scan_time_ms: s.avg_scan_time_ms,
+            last_scan_time_ms: s.last_scan_time_ms,
+            skip_interval: self.inner.skip_interval(),
+        }
     }
 
     /// Reset the session (clears dedup cooldowns and all statistics).
@@ -363,13 +406,16 @@ impl WasmScanSession {
         self.inner.reset();
     }
 
-    /// Clear the cooldown for a specific barcode (allow immediate re-scan).
+    /// Allow `text` to be reported again immediately.
     #[wasm_bindgen(js_name = clearCooldown)]
     pub fn clear_cooldown(&mut self, text: &str) {
         self.inner.clear_cooldown(text);
     }
-}
 
-// ── Panic hook ────────────────────────────────────────────────────────────────
-// Initialisation happens automatically via #[wasm_bindgen(start)] on `wasm_init`.
-// No manual call needed.
+    fn process(&mut self, data: &[u8], width: u32, height: u32, format: PixelFormat) -> JsValue {
+        match self.inner.process_frame(data, width, height, format) {
+            Some(results) => results_to_js(&results),
+            None => JsValue::NULL,
+        }
+    }
+}

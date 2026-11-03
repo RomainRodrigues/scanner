@@ -201,14 +201,17 @@ fn test_code128_filter_does_not_return_qr() {
     }
 
     let result = scanner.scan_file(test_path);
-    assert!(result.is_err(), "QR code image should return NotFound when Code128 format is forced");
+    assert!(
+        result.is_err(),
+        "QR code image should return NotFound when Code128 format is forced"
+    );
 }
 
 /// QrCode-only config: any successful decode must be QR or MicroQR.
 #[test]
 fn test_qr_only_returns_only_qr_formats() {
     let scanner = Scanner::new(ScannerConfig::qr_only());
-    
+
     let test_path = "../../tests/images/barcode_1d/ean13_clean.png";
     if !std::path::Path::new(test_path).exists() {
         println!("Skipping test: test image not found");
@@ -216,7 +219,10 @@ fn test_qr_only_returns_only_qr_formats() {
     }
 
     let result = scanner.scan_file(test_path);
-    assert!(result.is_err(), "EAN-13 barcode should return NotFound when only QrCode format is requested");
+    assert!(
+        result.is_err(),
+        "EAN-13 barcode should return NotFound when only QrCode format is requested"
+    );
 }
 
 /// QrCode filter should still find QR codes when present (allowlist must not block valid formats).
@@ -238,7 +244,10 @@ fn test_qr_filter_allows_qr_decode() {
         Ok(results) => {
             assert!(!results.is_empty(), "Should have decoded at least one QR");
             assert!(
-                matches!(results[0].format, BarcodeFormat::QrCode | BarcodeFormat::MicroQr),
+                matches!(
+                    results[0].format,
+                    BarcodeFormat::QrCode | BarcodeFormat::MicroQr
+                ),
                 "Expected QrCode format, got {:?}",
                 results[0].format
             );
@@ -250,3 +259,84 @@ fn test_qr_filter_allows_qr_decode() {
     }
 }
 
+// ── v0.4 behaviour ────────────────────────────────────────────────────────────
+
+fn load_luma(path: &str) -> Option<image::GrayImage> {
+    image::open(format!("../../tests/images/{path}"))
+        .ok()
+        .map(|i| i.to_luma8())
+}
+
+/// Result points must be expressed in full-frame coordinates, even with a ROI.
+#[test]
+fn test_roi_points_are_in_frame_coordinates() {
+    let Some(img) = load_luma("qr/tiny_in_large.png") else {
+        return;
+    };
+    let (w, h) = img.dimensions();
+    let scanner = Scanner::new(ScannerConfig {
+        roi: Some(scanner_core::Roi::centered(0.5)),
+        ..ScannerConfig::default()
+    });
+    let results = scanner
+        .scan_frame(img.as_raw(), w, h, PixelFormat::Luma)
+        .expect("tiny QR inside the ROI should decode");
+    assert_eq!(results[0].text, "Tiny code");
+    // The code is pasted at (440..560, 440..560) in the full image.
+    for p in &results[0].points {
+        assert!(
+            (430.0..570.0).contains(&p.x),
+            "x = {} not in frame space",
+            p.x
+        );
+        assert!(
+            (430.0..570.0).contains(&p.y),
+            "y = {} not in frame space",
+            p.y
+        );
+    }
+}
+
+#[test]
+fn test_multiple_codes_in_one_image() {
+    let Some(img) = load_luma("qr/multiple.png") else {
+        return;
+    };
+    let (w, h) = img.dimensions();
+    let scanner = Scanner::new(ScannerConfig {
+        max_results: 4,
+        ..ScannerConfig::default()
+    });
+    let results = scanner
+        .scan_frame(img.as_raw(), w, h, PixelFormat::Luma)
+        .unwrap();
+    let mut texts: Vec<_> = results.iter().map(|r| r.text.as_str()).collect();
+    texts.sort();
+    assert_eq!(texts, vec!["Code A", "Code B"]);
+}
+
+/// The session spreads fallback strategies over frames: an inverted code that
+/// the fast path cannot read must still be found within a few frames.
+#[test]
+fn test_session_finds_inverted_code_within_a_few_frames() {
+    let Some(img) = load_luma("qr/inverted.png") else {
+        return;
+    };
+    let (w, h) = img.dimensions();
+    let mut session = ScanSession::new(ScannerConfig {
+        adaptive_throttle: false,
+        ..ScannerConfig::default()
+    });
+    let found = (0..6).find_map(|_| session.process_frame(img.as_raw(), w, h, PixelFormat::Luma));
+    assert!(
+        found.is_some(),
+        "inverted QR should be decoded by a rotating strategy"
+    );
+    // Same code again within the cooldown: never reported twice.
+    for _ in 0..6 {
+        assert!(session
+            .process_frame(img.as_raw(), w, h, PixelFormat::Luma)
+            .is_none());
+    }
+    assert_eq!(session.stats().codes_detected, 1);
+}

@@ -1,203 +1,159 @@
-# 📖 Guide Complet du Projet Scanner
+# 📖 Guide du projet Scanner (v0.4)
 
-Félicitations, l'intégralité du projet de scan haute performance (QR code et codes-barres) a été implémentée avec succès à travers les 4 phases prévues. Ce document est là pour t'expliquer comment tout cela fonctionne, comment l'utiliser et comment tester chaque partie de ton nouveau super-projet.
-
----
-
-## 🏗️ Architecture du Projet
-
-Le projet est divisé en 4 modules (`crates` en Rust), chacun correspondant à une phase du développement. Tout le code source se trouve dans le dossier `crates/`.
-
-1. **`scanner-core` (Phase 1)** : Le moteur pur Rust. C'est le cœur du système. Il lit les images, gère le redimensionnement (ROI), optimise le contraste (CLAHE), binarise l'image (Sauvola) et tente de décoder avec `rxing`.
-2. **`scanner-cli` (Phase 2)** : L'outil en ligne de commande. Il te permet de scanner des fichiers, des dossiers entiers, de lancer des benchmarks, mais surtout d'utiliser ta **webcam en temps réel** (`scanner live`) pour voir les performances en direct.
-3. **`scanner-napi` (Phase 3)** : Le module (addon) natif pour Node.js. C'est ce qui te permet d'importer ta bibliothèque Rust ultra-rapide directement dans un projet JavaScript serveur/backend sans overhead.
-4. **`scanner-wasm` (Phase 4)** : Le module WebAssembly. Il permet de compiler le moteur Rust pour le faire tourner nativement **dans n'importe quel navigateur web** côté client. Il est accompagné d'un SDK complet (`scanner-web.js`) pour gérer la caméra web facilement.
+Ce document explique l'architecture, les choix techniques face à STRICH, comment
+utiliser le SDK et comment tout tester en local.
 
 ---
 
-## ⚡ La Recette des Performances (Pourquoi c'est plus rapide que html5-qrcode)
+## 🏗️ Architecture
 
-Pour rivaliser avec (ou battre) des solutions payantes comme Strich.io, on n'essaie pas juste de décoder bêtement l'image, on utilise un pipeline dit "adaptatif" et des astuces temps réel :
+Le projet est recentré sur **une seule cible : la librairie npm pour les sites web clients**.
+Le CLI (`scanner-cli`) et l'addon Node natif (`scanner-napi`) ont été supprimés.
 
-1. **Région d'Intérêt (ROI)** : Au lieu d'analyser toute l'image de la caméra (ex: 1280x720 pixels, soit 921 000 pixels), on ne prend qu'un rectangle central (ex: 60% de l'image). Cela réduit instantanément la taille des données de 64% !
-2. **Le "Fast Path"** : Avant de faire des calculs compliqués, le moteur regarde si le code-barres est parfaitement lisible. S'il l'est (90% des cas avec une bonne caméra), il est décodé en **moins de 5ms**.
-3. **L'Artillerie Lourde** : Si l'image est floue ou sombre, le moteur applique automatiquement le pipeline lourd :
-   - *CLAHE* : Pour égaliser la lumière (si tu scannes à contre-jour).
-   - *Unsharp Mask* : Pour rendre net un code-barres un peu flou.
-   - *Sauvola Binarization* : Un algorithme très complexe (optimisé en O(1) avec des images intégrales) qui gère parfaitement les ombres portées sur un code.
-4. **Adaptive Throttling (Temps Réel)** : Si ton PC (ou téléphone) rame et que le scan prend 30ms au lieu des 15ms prévus, la `ScanSession` va intelligemment "sauter" des images de la caméra (ex: scanner 1 image sur 2 ou 1 sur 3) pour garder le flux vidéo fluide et ne jamais bloquer l'appareil.
+```
+crates/scanner-core/     Moteur Rust : prétraitements, stratégies de décodage, session temps réel
+crates/scanner-wasm/     Bindings WebAssembly (API bas niveau)
+packages/scanner-web/    SDK TypeScript publié sur npm : @gueshbzh-perso/scanner (+ demo/)
+```
+
+Le client n'installe que le SDK : il embarque le WASM, le worker et l'UI.
+
+```ts
+import { BarcodeReader, scanImage } from '@gueshbzh-perso/scanner';
+
+const reader = await BarcodeReader.create({ host: '#scanner', formats: ['qr_code', 'ean_13'] });
+reader.on('detected', (codes) => console.log(codes[0].text));
+await reader.start();          // depuis un clic (son autorisé sur iOS)
+
+const codes = await scanImage(fichier);   // image fixe
+```
 
 ---
 
-## 🛡️ Sécurité & Optimisation (Audit)
+## 🎯 Comment fonctionne STRICH, et ce qu'on a repris
 
-Le projet a fait l'objet d'un audit de sécurité et de performance garantissant :
-- **100% Memory Safe** : Aucun code `unsafe` n'est présent dans la base de code (éliminant les risques de buffer overflow fréquents en C/C++).
-- **Robustesse aux Crashs** : La gestion des erreurs (`thiserror`) est propre. Les `unwrap` sont absents des zones critiques, garantissant zéro plantage (panic) inopiné.
-- **Performances Maximales** : Un profil de `release` très agressif (`lto = true`, `codegen-units = 1`, `panic = "abort"`, `strip = true`) est en place, réduisant le poids des binaires et augmentant la vitesse de 10 à 20%.
+STRICH est un SDK commercial (licence payante, clé vérifiée en ligne). D'après sa
+documentation publique, il utilise **WebGL** pour traiter le flux caméra et
+**WebAssembly** pour localiser et décoder les codes, entièrement côté client, avec
+une UI prête à l'emploi (zone de scan, lampe, choix de caméra) et un `PopupScanner`.
 
----
+Leur force ne vient pas d'un « meilleur décodeur magique » mais du **pipeline autour** :
+ne jamais bloquer l'UI, ne donner au décodeur que les pixels utiles, et répartir
+les traitements coûteux dans le temps. C'est ce qui manquait à l'ancienne version :
 
-## 💻 Comment Lancer les Scripts en Local
+| Problème de la v0.3 | Ce qui a été fait en v0.4 |
+| --- | --- |
+| Décodage synchrone dans `requestAnimationFrame` → l'UI gèle | Décodage dans un **Web Worker**, une seule frame en vol (pas de file d'attente, latence constante) |
+| `drawImage` + `getImageData` de toute la frame en RGBA (4 octets/px) | **Pipeline WebGL2** : recadrage ROI + niveaux de gris + réduction (filtre box) + 4 pixels par texel en un seul shader, relecture asynchrone (PBO + fence) de `largeur × hauteur` octets seulement. Repli Canvas 2D automatique |
+| Chaque frame vide exécutait toute la cascade (rapide → CLAHE → Sauvola → inversion → inversion+Sauvola) | **Rotation des stratégies** : passe rapide + **une** stratégie de secours par frame, différente à chaque frame. Toutes sont couvertes en ~150 ms à 30 fps |
+| Copies multiples des pixels | Écriture directe dans la mémoire WASM (`frameBuffer()`) |
+| Points des codes faux avec une ROI (relatifs au recadrage) | Points toujours en coordonnées de la frame vidéo ; l'overlay les dessine au bon endroit |
+| `format` renvoyé `"QR Code"` alors qu'on configure `"qr_code"` | Même orthographe en entrée et en sortie |
+| `maxResults > 1` ignoré | Vrai mode multi-codes (lecteur multiple de rxing) |
+| Faux positifs possibles sur Code 39 / ITF / Codabar (pas de checksum) | **Confirmation multi-frames** pour ces formats (2 lectures concordantes par défaut) |
+| `confidence` / `orientation` toujours à 1.0 / 0.0 | Supprimés (ils trompaient l'utilisateur) |
+| Toutes les features par défaut de rxing (encodeurs, 15 codecs image, `chrono-tz`…) | Uniquement les décodeurs nécessaires |
+| Pas de gestion caméra / UI : à recoder par chaque client | `BarcodeReader` : caméra arrière, mémoire de la caméra choisie, lampe torche, zoom, autofocus continu, changement de caméra, masque ROI, surlignage des codes, bip + vibration |
+| Un seul binaire WASM | Deux binaires (standard + **SIMD**), choix automatique |
 
-Voici les instructions pas à pas pour tester l'ensemble du projet sur ta machine.
+### Mesures
 
-### 1. Générer le jeu de données de test
+- Coût d'une frame **sans code** (le cas le plus fréquent), 1024×432, natif :
+  **~168 ms → ~25 ms** par frame analysée (~6,6× plus rapide).
+- Test e2e dans Chromium headless (caméra simulée) : premier code lu en ~150–350 ms
+  après le démarrage de la caméra. Les temps GPU affichés en headless ne sont pas
+  représentatifs (rendu WebGL émulé par le CPU via SwiftShader) : **il faut encore
+  mesurer sur de vrais téléphones**.
 
-Avant tout, génère des images de test (nécessite Python) :
-```bash
-cd tests/images
-pip install qrcode pillow python-barcode
-python3 generate_test_images.py
-cd ../..
-```
-Cela va créer des dossiers remplis de QR codes (propres, flous, sombres, tournés...) et de codes-barres 1D (EAN-13, Code128, etc.).
+### Ce qui reste pour vraiment jouer dans la même cour que STRICH
 
-### 2. Tester le CLI & la Webcam (Phases 1 & 2)
-
-L'outil en ligne de commande (CLI) se lance de préférence via `cargo run`. Nous utilisons le flag `--release` pour avoir les performances maximales du moteur lors des tests locaux.
-
-**Scanner une image ou un dossier :**
-```bash
-cargo run --release -p scanner-cli -- scan ./tests/images/qr/clean_hd.png
-cargo run --release -p scanner-cli -- scan ./tests/images/ --recursive
-```
-
-**Lancer le Benchmark de performance :**
-```bash
-cargo run --release -p scanner-cli -- bench ./tests/images/
-```
-
-**🎥 Tester la WEBCAM en live !**
-*(C'est là que la magie opère)*
-```bash
-cargo run --release -p scanner-cli -- live
-```
-Prends ton téléphone portable, affiche un QR code ou un code-barres sur l'écran, et montre-le à ta webcam d'ordinateur. Le résultat apparaîtra instantanément dans ton terminal avec les millisecondes que ça a pris.
-Tu peux quitter avec `Ctrl+C`.
-
-### 3. Tester l'Addon Node.js (Phase 3)
-
-Si tu veux utiliser la librairie dans un script JS/TypeScript côté serveur :
-
-```bash
-cd crates/scanner-napi
-# Construire le binaire natif (.node) pour Node.js
-npm run build
-# Lancer les tests JS
-node test.mjs
-```
-
-Dans un de tes projets Node, tu n'auras plus qu'à installer le package et faire :
-```javascript
-const { Scanner } = require('@scanner/native');
-const scanner = new Scanner();
-const results = await scanner.scanFile('./mon_image.jpg');
-```
-
-### 4. Tester WebAssembly & le Navigateur (Phase 4)
-
-Si tu veux mettre ton scanner sur un site web frontend (React, Vue, ou JS vanilla) :
-
-```bash
-cd crates/scanner-wasm
-# Construire le code WebAssembly (WASM) en module ES standard (recommandé pour Vite / Nuxt 3)
-wasm-pack build --target web --out-dir pkg --release --weak-refs
-```
-
-**Lancer la démonstration Web :**
-Le module web vient avec une interface graphique ultra-moderne que nous avons construite.
-```bash
-cd demo
-# Lancer un petit serveur web pour voir la page
-python3 -m http.server 8080
-```
-Ouvre ensuite ton navigateur web sur : **http://localhost:8080**
-Sur la page, tu pourras :
-- Glisser-déposer des images pour les scanner.
-- Cliquer sur "Start Camera" pour ouvrir ta webcam directement dans le navigateur avec une interface animée façon "HUD" de science-fiction, et des statistiques en temps réel en bas de page.
+1. **Localisation sur GPU** : détecter les zones « qui ressemblent à un code-barres »
+   (densité de gradients) dans le shader, puis ne décoder que ces zones. C'est le plus
+   gros gain restant, surtout pour les petits codes loin de la caméra.
+2. **Décodeur 1D par lignes de balayage** dédié (au lieu de rxing) : beaucoup plus
+   robuste au flou et aux codes abîmés, c'est là que les SDK commerciaux se distinguent.
+3. **Benchmark sur un vrai jeu d'images** (photos de codes réels, flous, reflets) pour
+   comparer objectivement avec STRICH / ZXing / le `BarcodeDetector` natif.
+4. Un `PopupScanner` (scan en un appel dans une `<dialog>`), et des wrappers React / Vue.
+5. Taille du WASM (~1 Mo, ~450 Ko gzip) : retirer les formats inutilisés via des
+   features Cargo par build.
 
 ---
 
-## 📦 Build et Déploiement
+## 💻 Lancer le projet en local
 
-Une fois les tests en local validés, voici comment compiler et déployer votre projet pour la production.
+### Prérequis
 
-### 1. Déployer l'outil CLI (Ligne de Commande)
-L'outil en ligne de commande produit un exécutable autonome (standalone).
 ```bash
-cargo build --release -p scanner-cli
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.125   # même version que Cargo.lock
+npm install -g binaryen                             # optionnel : wasm-opt
+pip install qrcode pillow python-barcode            # images de test
 ```
-Le binaire généré et optimisé se trouvera dans `target/release/scanner`. Il suffit de le copier sur votre serveur ou de le distribuer à vos utilisateurs. Il n'a besoin d'aucune dépendance système externe (pas de DLL / lib partagée complexe).
 
-### 2. Déployer l'add-on Node.js (Serveur Backend)
-Pour déployer le moteur dans un backend Node.js (Express, Fastify, NestJS, etc.) :
+### Tests du moteur Rust
+
 ```bash
-cd crates/scanner-napi
+python3 tests/images/generate_test_images.py
+cargo test --workspace --release
+```
+
+### Tests WASM (dans Node.js)
+
+```bash
+CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
+  cargo test -p scanner-wasm --target wasm32-unknown-unknown --test web
+```
+
+### SDK, démo et tests de bout en bout
+
+```bash
+cd packages/scanner-web
 npm install
-npm run build
-```
-Vous pouvez ensuite soit publier ce module sur votre registre npm privé, soit inclure le fichier `.node` généré dans votre dossier de build final (Docker ou CI/CD). Assurez-vous que la plateforme de build correspond à la plateforme de déploiement (ex: Linux x64).
-
-### 3. Déployer pour le Web (Application Frontend)
-
-**Option A : Fichiers statiques purs (Vanilla JS, sans bundler)**
-Idéal pour un déploiement direct (Vercel, Netlify, Github Pages) :
-```bash
-cd crates/scanner-wasm
-wasm-pack build --target web --out-dir pkg --release --weak-refs
-```
-Copiez simplement l'intégralité du contenu du dossier `crates/scanner-wasm/pkg` dans le dossier `public` ou `assets` de votre frontend. Assurez-vous que votre serveur web sert le fichier `.wasm` avec le bon Content-Type (`application/wasm`).
-
-**Option B : Publier sur NPM (Pour Nuxt, Vue, React, Vite, Webpack...)**
-Si vous souhaitez distribuer votre moteur WASM pour qu'il soit installable via `npm install` (comme `@gueshbzh-perso/scanner-wasm`) :
-
-1. **Choisir le bon "target" selon votre framework :**
-   - **Vite / Nuxt 3** : Le standard moderne est `--target web`. Le WASM est généré en tant que module ES pur, et s'initialise asynchrone (`await init(wasmUrl)`). Vite gère très bien l'import du `.wasm` en tant qu'URL.
-   - **Webpack / Nuxt 2** : Vous pouvez utiliser `--target bundler`. Webpack fera sa magie pour importer et initialiser le WASM de manière transparente.
-
-2. **Construire le paquet WASM avec votre scope (organisation) :**
-   ```bash
-   cd crates/scanner-wasm
-   # Pour Vite / Nuxt 3
-   wasm-pack build --scope gueshbzh-perso --target web --out-dir pkg --release --weak-refs
-   ```
-
-3. **Publier sur le registre NPM :**
-   Placez-vous dans le dossier de build `pkg` et publiez avec accès public :
-   ```bash
-   cd pkg
-   npm publish --access public
-   ```
-
-Une fois publié, vous pourrez l'importer dans votre application Nuxt 3 :
-
-```javascript
-import init, { WasmScanSession } from '@gueshbzh-perso/scanner-wasm';
-import wasmUrl from '@gueshbzh-perso/scanner-wasm/scanner_wasm_bg.wasm?url'; // Astuce Vite
-
-// Au montage du composant (ex: onMounted en Vue 3)
-await init(wasmUrl);
-const session = new WasmScanSession({ ... });
-
-// Au démontage du composant (ex: onUnmounted en Vue 3)
-session.free(); // Recommandé : Libère la mémoire WASM immédiatement
+npm run build        # Rust → WASM (standard + SIMD) puis TypeScript → dist/
+npm run demo         # http://localhost:8080/demo/
+npm run test:e2e     # Chromium headless + fausse caméra (ffmpeg + Playwright)
 ```
 
-> 🛡️ **Gestion de la mémoire en WASM**  
-> Les objets générés par WebAssembly (`WasmScanSession` ou `WasmScanner`) allouent de la mémoire côté Rust. Grâce au flag `--weak-refs` inclus à la compilation, le Garbage Collector de JavaScript finira par libérer cette mémoire automatiquement via le `FinalizationRegistry`.  
-> Cependant, le Garbage Collector étant non-déterministe, il est **fortement recommandé** d'appeler manuellement la méthode `.free()` lorsque vous avez fini (par exemple, à l'arrêt de la caméra) afin de libérer immédiatement les buffers d'images, évitant ainsi les pics de consommation de RAM temporaires. Le `--weak-refs` agit comme un excellent filet de sécurité.
-
-Une fois publié (ou lié localement avec `npm link` depuis le dossier `pkg`), vous pourrez l'importer de manière transparente dans n'importe quel projet JavaScript/TypeScript côté client pour avoir un décodage ultra-rapide directement dans le navigateur !
+Pour tester sur téléphone, la caméra exige du HTTPS : utiliser un tunnel
+(`npx localtunnel --port 8080`, ngrok, Cloudflare Tunnel…).
 
 ---
 
-## 🚀 Prochaines étapes
+## 📦 Publier sur npm
 
-Ton projet est **complet et fonctionnel**. Il a toutes les fondations pour devenir une solution majeure open-source.
+```bash
+cd packages/scanner-web
+npm run build
+npm publish --access public
+```
 
-- Le code est versionné et prêt à être *pushé* sur ton compte GitHub.
-- Tu as toutes les couches (Rust pur, CLI, Node, Navigateur).
-- La compatibilité est maximale (Windows, Mac, Linux, Android, iOS via navigateur).
+Côté client avec **Vite / Nuxt**, exclure le paquet du pré-bundling, sinon les URLs
+du worker et du `.wasm` sont cassées :
 
-*(Note technique : Si jamais dans le futur, tes utilisateurs remontent que certains formats obscurs manquent, sache que tout est orchestré depuis `crates/scanner-core/src/decode/rxing_backend.rs`. C'est là que les moteurs de décodage sont wrappés. Il te suffira d'ajouter de nouvelles librairies derrière ce wrapper).*
+```ts
+// vite.config.ts
+export default { optimizeDeps: { exclude: ['@gueshbzh-perso/scanner'] } };
+```
+
+Exemple Vue 3 :
+
+```ts
+let reader;
+onMounted(async () => {
+  reader = await BarcodeReader.create({ host: scannerEl.value, formats: ['ean_13'] });
+  reader.on('detected', ([code]) => emit('scanned', code.text));
+});
+const start = () => reader.start();      // sur un clic
+onUnmounted(() => reader?.destroy());    // libère caméra, worker et mémoire WASM
+```
+
+---
+
+## ⚠️ Changements cassants depuis la 0.3
+
+- Paquet client : `@gueshbzh-perso/scanner` (le paquet `scanner-wasm` reste l'API bas niveau).
+- `ScanResult.format` est maintenant `"qr_code"`, `"ean_13"`… ; `points` est un tableau de `{ x, y }`.
+- `confidence` et `orientation` ont disparu ; `timestamp_ms` devient `timestampMs`.
+- Statistiques de session : un seul getter `stats` au lieu de plusieurs getters.
+- `scanner-cli` et `scanner-napi` sont supprimés.

@@ -20,18 +20,17 @@ pub fn unsharp_mask(img: &GrayImage, sigma: f32, amount: f32) -> GrayImage {
     // Create the blurred version (the "mask")
     let blurred = gaussian_blur_f32(img, sigma);
 
-    let mut output = GrayImage::new(width, height);
-    for (x, y, pixel) in img.enumerate_pixels() {
-        let original = pixel[0] as f32;
-        let blur = blurred.get_pixel(x, y)[0] as f32;
+    let out: Vec<u8> = img
+        .as_raw()
+        .iter()
+        .zip(blurred.as_raw().iter())
+        .map(|(&o, &b)| {
+            let o = o as f32;
+            (o + amount * (o - b as f32)).round().clamp(0.0, 255.0) as u8
+        })
+        .collect();
 
-        // Unsharp mask formula
-        let sharpened = original + amount * (original - blur);
-        let val = sharpened.round().clamp(0.0, 255.0) as u8;
-        output.put_pixel(x, y, image::Luma([val]));
-    }
-
-    output
+    GrayImage::from_raw(width, height, out).expect("unsharp: same dimensions")
 }
 
 #[cfg(test)]
