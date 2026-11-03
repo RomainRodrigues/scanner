@@ -3,7 +3,7 @@
 Demo app of the `@gueshbzh-perso/scanner` SDK, linked from `packages/scanner-web`.
 `app/components/BarcodeScanner.vue` is a reusable wrapper you can copy into a real app.
 
-Live version: https://romainrodrigues.github.io/scanner/ (deployed by `.github/workflows/pages.yml`).
+Live version: https://scanner.romrd.fr (deployed by `.github/workflows/pages.yml`).
 
 ## First run
 

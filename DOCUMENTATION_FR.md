@@ -133,8 +133,17 @@ un jeu de **vraies photos** (reflets, codes abîmés, angles) pour un benchmark 
   fmt / clippy / tests / doc Rust, tests WASM dans Node.js, ESLint + Prettier, build du
   SDK, vérification des types, tests e2e avec fausse caméra, build de la démo.
 - **Pages** (`.github/workflows/pages.yml`, à chaque push sur `main`) : génère la démo
-  Nuxt et la publie sur https://romainrodrigues.github.io/scanner/.
-  À activer une fois : *Settings → Pages → Build and deployment → Source : GitHub Actions*.
+  Nuxt et la publie sur **https://scanner.romrd.fr**.
+
+  À configurer une fois :
+  1. *Settings → Pages → Build and deployment → Source : GitHub Actions*.
+  2. DNS chez le registrar de `romrd.fr` : un enregistrement **CNAME** `scanner` →
+     `romainrodrigues.github.io.`
+  3. *Settings → Pages → Custom domain* : `scanner.romrd.fr`, puis cocher **Enforce HTTPS**
+     une fois le certificat émis (indispensable : la caméra exige HTTPS).
+  4. Recommandé : vérifier le domaine `romrd.fr` dans les paramètres du **compte**
+     GitHub (*Settings → Pages → Add a domain*, enregistrement TXT) pour qu'aucun autre
+     dépôt ne puisse s'approprier le sous-domaine.
 
 Règles de contribution, cas particuliers connus et conventions : [CLAUDE.md](CLAUDE.md).
 

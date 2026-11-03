@@ -38,7 +38,7 @@ apps/
 tests/fixtures/     Committed test images (+ generate.py to regenerate them)
 ```
 
-**Live demo:** https://romainrodrigues.github.io/scanner/ (deployed from `main`).
+**Live demo:** https://scanner.romrd.fr (deployed from `main`).
 
 ## Development
 

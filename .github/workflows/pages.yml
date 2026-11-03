@@ -22,11 +22,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-toolchain
       - run: npm run build
+      # Served at the root of the custom domain https://scanner.romrd.fr, so no
+      # base URL is needed. Without a custom domain, project pages live under
+      # /<repo>/: set NUXT_APP_BASE_URL=/${{ github.event.repository.name }}/ here.
       - name: Generate the static demo
         run: npm run generate
-        env:
-          # Project pages are served from https://<user>.github.io/<repo>/
-          NUXT_APP_BASE_URL: /${{ github.event.repository.name }}/
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
