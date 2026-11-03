@@ -8,8 +8,7 @@
     "build": "nuxt build",
     "preview": "nuxt build && node .output/server/index.mjs",
     "tunnel": "cloudflared tunnel --url http://localhost:3000",
-    "postinstall": "nuxt prepare",
-    "phone": "node scripts/phone.mjs"
+    "postinstall": "nuxt prepare"
   },
   "dependencies": {
     "@gueshbzh-perso/scanner": "file:../../packages/scanner-web",
