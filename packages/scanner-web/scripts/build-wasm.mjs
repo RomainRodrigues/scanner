@@ -80,7 +80,16 @@ function build(variant, rustflags) {
   console.log(`\n▶ cargo build (${variant})`);
   run(
     'cargo',
-    ['build', '-p', 'scanner-wasm', '--release', '--target', 'wasm32-unknown-unknown', '--target-dir', targetDir],
+    [
+      'build',
+      '-p',
+      'scanner-wasm',
+      '--release',
+      '--target',
+      'wasm32-unknown-unknown',
+      '--target-dir',
+      targetDir,
+    ],
     { RUSTFLAGS: rustflags },
   );
   const wasm = join(targetDir, 'wasm32-unknown-unknown/release/scanner_wasm.wasm');
@@ -110,12 +119,25 @@ const targets = [
 ];
 
 const wasmOpt = has('wasm-opt');
-if (!wasmOpt) console.warn('\n⚠ wasm-opt not found: skipping binary optimisation (install binaryen for ~20% smaller output)');
+if (!wasmOpt)
+  console.warn(
+    '\n⚠ wasm-opt not found: skipping binary optimisation (install binaryen for ~20% smaller output)',
+  );
 for (const [src, dest, flags] of targets) {
   if (wasmOpt) {
-    run('wasm-opt', ['-O3', '--enable-bulk-memory', '--enable-nontrapping-float-to-int',
-      '--enable-sign-ext', '--enable-mutable-globals', '--enable-reference-types', '--enable-multivalue',
-      ...flags, src, '-o', dest]);
+    run('wasm-opt', [
+      '-O3',
+      '--enable-bulk-memory',
+      '--enable-nontrapping-float-to-int',
+      '--enable-sign-ext',
+      '--enable-mutable-globals',
+      '--enable-reference-types',
+      '--enable-multivalue',
+      ...flags,
+      src,
+      '-o',
+      dest,
+    ]);
   } else {
     copyFileSync(src, dest);
   }

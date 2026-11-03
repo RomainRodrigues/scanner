@@ -25,8 +25,8 @@ pub fn unsharp_mask(img: &GrayImage, sigma: f32, amount: f32) -> GrayImage {
         .iter()
         .zip(blurred.as_raw().iter())
         .map(|(&o, &b)| {
-            let o = o as f32;
-            (o + amount * (o - b as f32)).round().clamp(0.0, 255.0) as u8
+            let o = f32::from(o);
+            (o + amount * (o - f32::from(b))).round().clamp(0.0, 255.0) as u8
         })
         .collect();
 
@@ -54,7 +54,7 @@ mod tests {
         let out = unsharp_mask(&img, 1.0, 0.5);
         for (x, y, px) in out.enumerate_pixels() {
             // Allow ±2 for floating point rounding
-            let diff = (px[0] as i32 - 128i32).abs();
+            let diff = (i32::from(px[0]) - 128i32).abs();
             assert!(diff <= 2, "Pixel ({x},{y}) changed unexpectedly: {}", px[0]);
         }
     }

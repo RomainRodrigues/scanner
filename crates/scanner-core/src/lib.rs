@@ -4,12 +4,16 @@
 //!
 //! ## Features
 //!
-//! - Multi-format support: QR Code, Data Matrix, Aztec, PDF417, Code 128/39/93,
-//!   EAN-13/8, UPC-A/E, ITF, Codabar, and more
-//! - Adaptive preprocessing pipeline for robust scanning (blur, low-light, angles)
-//! - Real-time scanning with stateful `ScanSession` (strategy rotation, dedup, multi-frame validation)
-//! - Region of Interest (ROI) for faster scanning on camera streams
-//! - Designed to be embedded into the browser through WebAssembly (`scanner-wasm`)
+//! - QR Code, Micro QR, Data Matrix, Aztec, PDF417, Code 128/39/93, EAN-13/8,
+//!   UPC-A/E, ITF and Codabar, decoded by [rxing](https://crates.io/crates/rxing)
+//! - Fallback strategies for hard images: try-harder, inversion, CLAHE,
+//!   Sauvola binarization, rotations ([`Strategy`])
+//! - Real-time [`ScanSession`]: one fallback strategy per frame (rotating),
+//!   de-duplication, multi-frame confirmation of 1D codes
+//! - Rejection of 1D false positives without a quiet zone ([`decode::verify`])
+//! - Region of interest; result points always in full-frame coordinates
+//! - Built for the browser through WebAssembly (`scanner-wasm`); the
+//!   `file-io` feature (default) adds [`Scanner::scan_file`]
 //!
 //! ## Quick Start
 //!

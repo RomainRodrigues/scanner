@@ -5,6 +5,8 @@
 //!   cargo test -p scanner-wasm --target wasm32-unknown-unknown
 //! ```
 #![cfg(target_arch = "wasm32")]
+// `allow-unwrap-in-tests` does not cover `#[wasm_bindgen_test]` functions.
+#![allow(clippy::unwrap_used)]
 
 use rxing::{BarcodeFormat, MultiFormatWriter, Writer};
 use scanner_wasm::{WasmScanSession, WasmScanner};

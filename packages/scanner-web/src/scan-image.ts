@@ -4,13 +4,7 @@ import { sharedEngine } from './engine.js';
 import type { AssetOptions, Detection, EngineOptions } from './types.js';
 
 export type ImageInput =
-  | Blob
-  | ImageData
-  | ImageBitmap
-  | HTMLImageElement
-  | HTMLCanvasElement
-  | HTMLVideoElement
-  | OffscreenCanvas;
+  Blob | ImageData | ImageBitmap | HTMLImageElement | HTMLCanvasElement | HTMLVideoElement | OffscreenCanvas;
 
 export interface ScanImageOptions extends EngineOptions, AssetOptions {
   /** Images larger than this (longest side, px) are downscaled first. Default: `2048`. */
@@ -37,8 +31,17 @@ export async function scanImage(input: ImageInput, options: ScanImageOptions = {
 }
 
 async function rasterize(input: ImageInput, maxDim: number) {
-  if (typeof ImageData !== 'undefined' && input instanceof ImageData && Math.max(input.width, input.height) <= maxDim) {
-    return { data: new Uint8Array(input.data.slice().buffer), width: input.width, height: input.height, scale: 1 };
+  if (
+    typeof ImageData !== 'undefined' &&
+    input instanceof ImageData &&
+    Math.max(input.width, input.height) <= maxDim
+  ) {
+    return {
+      data: new Uint8Array(input.data.slice().buffer),
+      width: input.width,
+      height: input.height,
+      scale: 1,
+    };
   }
 
   let source: CanvasImageSource | ImageBitmap;
@@ -67,9 +70,7 @@ async function rasterize(input: ImageInput, maxDim: number) {
       ? new OffscreenCanvas(width, height)
       : Object.assign(document.createElement('canvas'), { width, height });
   const ctx = canvas.getContext('2d', { willReadFrequently: true }) as
-    | CanvasRenderingContext2D
-    | OffscreenCanvasRenderingContext2D
-    | null;
+    CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null;
   if (!ctx) throw new Error('scanImage: 2D canvas is not available');
   ctx.drawImage(source, 0, 0, width, height);
   owned?.close();
@@ -78,8 +79,10 @@ async function rasterize(input: ImageInput, maxDim: number) {
 }
 
 function size(s: CanvasImageSource | ImageBitmap): [number, number] {
-  if (typeof HTMLImageElement !== 'undefined' && s instanceof HTMLImageElement) return [s.naturalWidth, s.naturalHeight];
-  if (typeof HTMLVideoElement !== 'undefined' && s instanceof HTMLVideoElement) return [s.videoWidth, s.videoHeight];
+  if (typeof HTMLImageElement !== 'undefined' && s instanceof HTMLImageElement)
+    return [s.naturalWidth, s.naturalHeight];
+  if (typeof HTMLVideoElement !== 'undefined' && s instanceof HTMLVideoElement)
+    return [s.videoWidth, s.videoHeight];
   const o = s as { width: number; height: number };
   return [o.width, o.height];
 }

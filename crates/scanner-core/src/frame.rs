@@ -50,9 +50,13 @@ impl PixelFormat {
 
 /// A raw video frame, borrowing the underlying pixel data.
 pub struct Frame<'a> {
+    /// Pixel bytes, at least `format.buffer_size(width, height)` long.
     pub data: &'a [u8],
+    /// Width in pixels.
     pub width: u32,
+    /// Height in pixels.
     pub height: u32,
+    /// Layout of `data`.
     pub format: PixelFormat,
 }
 
@@ -91,7 +95,7 @@ impl<'a> Frame<'a> {
     /// Convert this frame to a grayscale `image::GrayImage`.
     ///
     /// This is the core conversion used by the preprocessing pipeline.
-    /// Uses fast LUT-based conversion for RGBA/RGB.
+    /// RGB(A) uses integer BT.601 weights; YUV formats just take the Y plane.
     pub fn to_luma(&self) -> image::GrayImage {
         match self.format {
             PixelFormat::Luma => {
@@ -147,9 +151,9 @@ fn rgba_to_luma(data: &[u8], width: u32, height: u32) -> image::GrayImage {
     // 0.587 * 65536 ≈ 38470
     // 0.114 * 65536 ≈  7471
     for chunk in data.chunks_exact(4) {
-        let r = chunk[0] as u32;
-        let g = chunk[1] as u32;
-        let b = chunk[2] as u32;
+        let r = u32::from(chunk[0]);
+        let g = u32::from(chunk[1]);
+        let b = u32::from(chunk[2]);
         let y = (19595 * r + 38470 * g + 7471 * b) >> 16;
         luma.push(y as u8);
     }
@@ -163,9 +167,9 @@ fn rgb_to_luma(data: &[u8], width: u32, height: u32) -> image::GrayImage {
     let mut luma = Vec::with_capacity(pixels);
 
     for chunk in data.chunks_exact(3) {
-        let r = chunk[0] as u32;
-        let g = chunk[1] as u32;
-        let b = chunk[2] as u32;
+        let r = u32::from(chunk[0]);
+        let g = u32::from(chunk[1]);
+        let b = u32::from(chunk[2]);
         let y = (19595 * r + 38470 * g + 7471 * b) >> 16;
         luma.push(y as u8);
     }

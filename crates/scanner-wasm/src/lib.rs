@@ -23,7 +23,6 @@
 //! const fresh = session.processFrameBuffer(width, height, "luma");
 //! ```
 
-#![deny(clippy::all)]
 use scanner_core::config::Roi as CoreRoi;
 use scanner_core::{
     BarcodeFormat, PixelFormat, ScanError, ScanSession as CoreScanSession, Scanner as CoreScanner,
@@ -33,7 +32,8 @@ use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::prelude::*;
 
-// Report Rust panics to the browser console as soon as the module is loaded.
+/// Runs when the module is instantiated: reports Rust panics to the browser
+/// console instead of an opaque `unreachable` trap.
 #[wasm_bindgen(start)]
 pub fn wasm_init() {
     console_error_panic_hook::set_once();
@@ -75,7 +75,9 @@ export type PixelFormat = "rgba" | "rgb" | "luma";
 #[derive(Serialize, Tsify)]
 #[tsify(into_wasm_abi)]
 pub struct Point {
+    /// Pixels from the left edge of the frame.
     pub x: f32,
+    /// Pixels from the top edge of the frame.
     pub y: f32,
 }
 
@@ -117,12 +119,19 @@ impl From<&scanner_core::ScanResult> for ScanResult {
 #[tsify(into_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionStats {
+    /// Frames passed to the session.
     pub frames_submitted: f64,
+    /// Frames actually decoded (not skipped by the throttle).
     pub frames_scanned: f64,
+    /// Frames in which at least one code was decoded (duplicates included).
     pub frames_with_detection: f64,
+    /// Codes reported as new.
     pub codes_detected: f64,
+    /// Average decode time per scanned frame, in ms.
     pub avg_scan_time_ms: f64,
+    /// Decode time of the last scanned frame, in ms.
     pub last_scan_time_ms: f64,
+    /// Throttle interval: `1` = every frame is scanned, `n` = one in `n`.
     pub skip_interval: u32,
 }
 
@@ -189,12 +198,17 @@ pub struct WasmScanConfig {
     pub adaptive_throttle: Option<bool>,
 }
 
+/// Region of interest, as fractions (0.0–1.0) of the frame size.
 #[derive(Deserialize, Tsify)]
 #[tsify(from_wasm_abi)]
 pub struct WasmRoi {
+    /// Left edge.
     pub x: f32,
+    /// Top edge.
     pub y: f32,
+    /// Width.
     pub width: f32,
+    /// Height.
     pub height: f32,
 }
 
@@ -252,7 +266,10 @@ fn buffer_view(buf: &mut Vec<u8>, len: usize) -> js_sys::Uint8Array {
     }
     // SAFETY: the view is only valid until the next allocation in the module.
     // This is documented on `frameBuffer` and the SDK never retains it.
-    unsafe { js_sys::Uint8Array::view(buf) }
+    #[allow(unsafe_code)]
+    unsafe {
+        js_sys::Uint8Array::view(buf)
+    }
 }
 
 // ── WasmScanner ───────────────────────────────────────────────────────────────
@@ -267,6 +284,7 @@ pub struct WasmScanner {
 
 #[wasm_bindgen]
 impl WasmScanner {
+    /// Create a scanner. Rotations are tried by default for still images.
     #[wasm_bindgen(constructor)]
     pub fn new(config: Option<WasmScanConfig>) -> WasmScanner {
         let base = ScannerConfig {
@@ -335,6 +353,7 @@ pub struct WasmScanSession {
 
 #[wasm_bindgen]
 impl WasmScanSession {
+    /// Create a session for a camera stream.
     #[wasm_bindgen(constructor)]
     pub fn new(config: Option<WasmScanConfig>) -> WasmScanSession {
         WasmScanSession {

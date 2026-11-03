@@ -23,7 +23,10 @@ export class Preview {
   private opts: Required<OverlayOptions> | null;
   private restoreHostPosition: string | null = null;
 
-  constructor(private host: HTMLElement, options: OverlayOptions | false | undefined) {
+  constructor(
+    private host: HTMLElement,
+    options: OverlayOptions | false | undefined,
+  ) {
     this.opts =
       options === false
         ? null
@@ -92,7 +95,7 @@ export class Preview {
   setTorchButton(visible: boolean, on: boolean, onClick: () => void): void {
     const show = visible && !!this.opts?.showTorchButton;
     this.torchBtn.style.display = show ? 'flex' : 'none';
-    this.torchBtn.style.background = on ? this.opts?.color ?? '#00d4aa' : 'rgba(0,0,0,0.55)';
+    this.torchBtn.style.background = on ? (this.opts?.color ?? '#00d4aa') : 'rgba(0,0,0,0.55)';
     this.torchBtn.onclick = onClick;
   }
 

@@ -27,7 +27,9 @@ export interface FrameGrabber {
 type AnyCanvas = HTMLCanvasElement | OffscreenCanvas;
 
 function makeCanvas(): AnyCanvas {
-  return typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(4, 4) : document.createElement('canvas');
+  return typeof OffscreenCanvas !== 'undefined'
+    ? new OffscreenCanvas(4, 4)
+    : document.createElement('canvas');
 }
 
 const VERT = `#version 300 es
@@ -123,7 +125,13 @@ export class WebGLGrabber implements FrameGrabber {
     gl.pixelStorei(gl.PACK_ALIGNMENT, 1);
   }
 
-  async grab(source: TexImageSource, rect: Rect, width: number, height: number, out: Uint8Array): Promise<void> {
+  async grab(
+    source: TexImageSource,
+    rect: Rect,
+    width: number,
+    height: number,
+    out: Uint8Array,
+  ): Promise<void> {
     const gl = this.gl;
     if (this.lost || gl.isContextLost()) throw new Error('WebGL context lost');
     const [sw, sh] = sourceSize(source);
@@ -190,7 +198,13 @@ export class CanvasGrabber implements FrameGrabber {
     this.ctx = must(ctx as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null, '2D context');
   }
 
-  async grab(source: TexImageSource, rect: Rect, width: number, height: number, out: Uint8Array): Promise<void> {
+  async grab(
+    source: TexImageSource,
+    rect: Rect,
+    width: number,
+    height: number,
+    out: Uint8Array,
+  ): Promise<void> {
     if (this.canvas.width !== width || this.canvas.height !== height) {
       this.canvas.width = width;
       this.canvas.height = height;

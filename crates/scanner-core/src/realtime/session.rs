@@ -194,7 +194,9 @@ impl ScanSession {
     /// Returns the current throttle interval: `1` means every frame is scanned,
     /// `2` means 1-in-2 frames, etc. Always `1` when the throttle is disabled.
     pub fn skip_interval(&self) -> u32 {
-        self.throttle.as_ref().map_or(1, |t| t.skip_interval())
+        self.throttle
+            .as_ref()
+            .map_or(1, super::throttle::AdaptiveThrottle::skip_interval)
     }
 }
 

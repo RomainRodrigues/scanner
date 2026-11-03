@@ -20,7 +20,13 @@ export interface Engine {
   /** Decode a camera frame. `buffer` is transferred and returned in the reply. */
   processFrame(buffer: ArrayBuffer, width: number, height: number, format: PixelFormat): Promise<FrameReply>;
   /** One-shot scan of a still image, running every strategy. */
-  scanImage(buffer: ArrayBuffer, width: number, height: number, format: PixelFormat, options: EngineOptions): Promise<Detection[]>;
+  scanImage(
+    buffer: ArrayBuffer,
+    width: number,
+    height: number,
+    format: PixelFormat,
+    options: EngineOptions,
+  ): Promise<Detection[]>;
   reset(): Promise<void>;
   clearCooldown(text: string): Promise<void>;
   destroy(): void;
@@ -109,7 +115,12 @@ class WorkerEngine implements Engine {
     await this.ok({ type: 'configure', options });
   }
 
-  async processFrame(buffer: ArrayBuffer, width: number, height: number, format: PixelFormat): Promise<FrameReply> {
+  async processFrame(
+    buffer: ArrayBuffer,
+    width: number,
+    height: number,
+    format: PixelFormat,
+  ): Promise<FrameReply> {
     const res = await this.ok({ type: 'frame', buffer, width, height, format }, [buffer]);
     return {
       results: (res.ok && res.results) || null,
@@ -119,7 +130,13 @@ class WorkerEngine implements Engine {
     };
   }
 
-  async scanImage(buffer: ArrayBuffer, width: number, height: number, format: PixelFormat, options: EngineOptions) {
+  async scanImage(
+    buffer: ArrayBuffer,
+    width: number,
+    height: number,
+    format: PixelFormat,
+    options: EngineOptions,
+  ) {
     const res = await this.ok({ type: 'scan', buffer, width, height, format, options }, [buffer]);
     return (res.ok && res.results) || [];
   }
@@ -142,7 +159,10 @@ class InlineEngine implements Engine {
   readonly inWorker = false;
   readonly version: string;
 
-  constructor(private core: EngineCore, readonly simd: boolean) {
+  constructor(
+    private core: EngineCore,
+    readonly simd: boolean,
+  ) {
     this.version = core.version;
   }
 
@@ -150,11 +170,22 @@ class InlineEngine implements Engine {
     this.core.configure(options);
   }
 
-  async processFrame(buffer: ArrayBuffer, width: number, height: number, format: PixelFormat): Promise<FrameReply> {
+  async processFrame(
+    buffer: ArrayBuffer,
+    width: number,
+    height: number,
+    format: PixelFormat,
+  ): Promise<FrameReply> {
     return { ...this.core.process(new Uint8Array(buffer), width, height, format), buffer };
   }
 
-  async scanImage(buffer: ArrayBuffer, width: number, height: number, format: PixelFormat, options: EngineOptions) {
+  async scanImage(
+    buffer: ArrayBuffer,
+    width: number,
+    height: number,
+    format: PixelFormat,
+    options: EngineOptions,
+  ) {
     return this.core.scan(new Uint8Array(buffer), width, height, format, options);
   }
 

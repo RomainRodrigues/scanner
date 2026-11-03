@@ -65,10 +65,10 @@ pub fn clahe(img: &GrayImage, tile_size: u32, clip_limit: f32) -> GrayImage {
         let out_row = &mut out[y * w..(y + 1) * w];
         for (x, &(tx0, tx1, fx)) in cols.iter().enumerate() {
             let v = src_row[x] as usize;
-            let v00 = luts[ty0 * nx + tx0][v] as f32;
-            let v10 = luts[ty0 * nx + tx1][v] as f32;
-            let v01 = luts[ty1 * nx + tx0][v] as f32;
-            let v11 = luts[ty1 * nx + tx1][v] as f32;
+            let v00 = f32::from(luts[ty0 * nx + tx0][v]);
+            let v10 = f32::from(luts[ty0 * nx + tx1][v]);
+            let v01 = f32::from(luts[ty1 * nx + tx0][v]);
+            let v11 = f32::from(luts[ty1 * nx + tx1][v]);
             let top = v00 + fx * (v10 - v00);
             let bot = v01 + fx * (v11 - v01);
             out_row[x] = (top + fy * (bot - top)).round().clamp(0.0, 255.0) as u8;

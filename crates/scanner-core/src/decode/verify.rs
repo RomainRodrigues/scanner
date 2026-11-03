@@ -107,7 +107,7 @@ pub fn plausible_linear(img: &GrayImage, r: &ScanResult) -> bool {
         if code.len() < 8 {
             continue;
         }
-        let contrast = percentile_range(&code) as f32;
+        let contrast = f32::from(percentile_range(&code));
         if contrast < 16.0 {
             continue; // unreadable line, no opinion
         }
@@ -125,8 +125,11 @@ pub fn plausible_linear(img: &GrayImage, r: &ScanResult) -> bool {
                 }
                 continue;
             }
-            let range = zone.iter().max().unwrap() - zone.iter().min().unwrap();
-            if range as f32 > QUIET_MAX_RELATIVE_CONTRAST * contrast {
+            let (min, max) = zone
+                .iter()
+                .fold((u8::MAX, u8::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
+            let range = max - min;
+            if f32::from(range) > QUIET_MAX_RELATIVE_CONTRAST * contrast {
                 line_ok = false;
             }
         }

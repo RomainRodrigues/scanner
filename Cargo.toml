@@ -11,7 +11,26 @@ version = "0.4.0"
 edition = "2021"
 authors = ["scanner"]
 license = "MIT"
-repository = "https://github.com/romainrodrigues/scanner"
+repository = "https://github.com/RomainRodrigues/scanner"
+rust-version = "1.87"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+unreachable_pub = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+cast_lossless = "warn"
+manual_let_else = "warn"
+needless_pass_by_value = "warn"
+redundant_closure_for_method_calls = "warn"
+semicolon_if_nothing_returned = "warn"
+uninlined_format_args = "warn"
+unwrap_used = "warn"
+dbg_macro = "warn"
+todo = "warn"
 
 [workspace.dependencies]
 # Core scanning engine.

@@ -9,7 +9,9 @@ export class Feedback {
   /** Must be called from a user gesture on iOS for audio to be allowed. */
   unlock(): void {
     if (!this.options || this.options.beep === false || this.audio) return;
-    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    const Ctx =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctx) return;
     try {
       this.audio = new Ctx();

@@ -13,14 +13,7 @@ import {
 } from './geometry.js';
 import { CanvasGrabber, createGrabber, type FrameGrabber } from './grabber.js';
 import { Preview } from './overlay.js';
-import type {
-  Detection,
-  EngineOptions,
-  ReaderEvents,
-  ReaderOptions,
-  ReaderStats,
-  Region,
-} from './types.js';
+import type { Detection, EngineOptions, ReaderEvents, ReaderOptions, ReaderStats, Region } from './types.js';
 
 const DEFAULT_REGION: Region = { x: 0.1, y: 0.2, width: 0.8, height: 0.6 };
 
@@ -72,7 +65,8 @@ export class BarcodeReader {
 
   /** Load the engine (WebAssembly, in a Web Worker) and build the preview inside `options.host`. */
   static async create(options: ReaderOptions): Promise<BarcodeReader> {
-    const host = typeof options.host === 'string' ? document.querySelector<HTMLElement>(options.host) : options.host;
+    const host =
+      typeof options.host === 'string' ? document.querySelector<HTMLElement>(options.host) : options.host;
     if (!host) throw new Error(`BarcodeReader: host element not found (${String(options.host)})`);
     const engine = await createEngine(options);
     await engine.configure(pickEngineOptions(options));
@@ -278,7 +272,10 @@ export class BarcodeReader {
 
     this.updatePerf(t1 - t0, reply.decodeMs, width, height);
 
-    const toVideo = (d: Detection): Detection => ({ ...d, points: decoderToVideo(d.points, rect, width, height) });
+    const toVideo = (d: Detection): Detection => ({
+      ...d,
+      points: decoderToVideo(d.points, rect, width, height),
+    });
     const live = reply.live.map(toVideo);
     const layout = coverLayout(vw, vh, ew, eh);
     this.preview.setDetections(live.map((d) => d.points.map((p) => videoToElement(p, layout))));
@@ -302,8 +299,8 @@ export class BarcodeReader {
   }
 
   private takeBuffer(size: number): ArrayBuffer {
-    while (this.buffers.length > 0) {
-      const b = this.buffers.pop()!;
+    // Buffers of another size (ROI or resolution changed) are dropped.
+    for (let b = this.buffers.pop(); b; b = this.buffers.pop()) {
       if (b.byteLength === size) return b;
     }
     return new ArrayBuffer(size);
@@ -355,6 +352,11 @@ export class BarcodeReader {
   }
 }
 
+/**
+ * Failure of the frame pipeline (GPU / canvas), as opposed to the engine.
+ * Only these trigger the WebGL → Canvas 2D fallback: an engine error must not
+ * be mistaken for a WebGL problem.
+ */
 class GrabError extends Error {
   constructor(override readonly cause: unknown) {
     super(cause instanceof Error ? cause.message : String(cause));

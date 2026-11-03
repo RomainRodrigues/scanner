@@ -60,7 +60,7 @@ pub fn sauvola_binarize(img: &GrayImage, window_radius: u32, k: f64) -> GrayImag
             let std_dev = variance.max(0.0).sqrt();
             let threshold = mean * (1.0 + k * (std_dev / R - 1.0));
 
-            out[y * w + x] = if src[y * w + x] as f64 >= threshold {
+            out[y * w + x] = if f64::from(src[y * w + x]) >= threshold {
                 255
             } else {
                 0
@@ -85,7 +85,7 @@ fn build_integral_images(src: &[u8], w: usize, h: usize) -> (Vec<u64>, Vec<u64>)
         let mut row_sq = 0u64;
         let src_row = &src[y * w..(y + 1) * w];
         for (x, &px) in src_row.iter().enumerate() {
-            let v = px as u64;
+            let v = u64::from(px);
             row_sum += v;
             row_sq += v * v;
             let idx = (y + 1) * iw + x + 1;

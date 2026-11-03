@@ -144,6 +144,6 @@ export interface ReaderEvents {
   /** New codes (already de-duplicated). */
   detected: Detection[];
   error: Error;
-  started: void;
-  stopped: void;
+  started: undefined;
+  stopped: undefined;
 }

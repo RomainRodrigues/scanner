@@ -12,24 +12,19 @@ pub enum ScanError {
     /// Failed to load an image from disk
     #[error("Failed to load image from '{path}': {source}")]
     ImageLoad {
+        /// Path that was being loaded.
         path: String,
+        /// Underlying decoding / I/O error.
         #[source]
         source: image::ImageError,
     },
 
-    /// The decoder returned an error
+    /// The decoder failed for a reason other than "nothing found"
+    /// (checksum and format failures are reported as [`ScanError::NotFound`]).
     #[error("Decoding error: {0}")]
     DecodingError(String),
 
     /// No barcode was found in the image
     #[error("No barcode detected in image")]
     NotFound,
-
-    /// The pixel format is not supported for this operation
-    #[error("Unsupported pixel format: {0}")]
-    UnsupportedFormat(String),
-
-    /// I/O error
-    #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
 }

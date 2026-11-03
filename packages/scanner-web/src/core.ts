@@ -8,7 +8,10 @@ import type { Detection, EngineOptions } from './types.js';
 export function simdSupported(): boolean {
   try {
     return WebAssembly.validate(
-      new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253, 98, 11]),
+      new Uint8Array([
+        0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253,
+        98, 11,
+      ]),
     );
   } catch {
     return false;
@@ -86,7 +89,13 @@ export class EngineCore {
     return { results: fresh, live: fresh ?? session.lastDetections.map(toDetection), decodeMs };
   }
 
-  scan(pixels: Uint8Array, width: number, height: number, format: PixelFormat, options: EngineOptions): Detection[] {
+  scan(
+    pixels: Uint8Array,
+    width: number,
+    height: number,
+    format: PixelFormat,
+    options: EngineOptions,
+  ): Detection[] {
     const config = toWasmConfig(options);
     const key = JSON.stringify(config);
     let scanner = this.scanners.get(key);

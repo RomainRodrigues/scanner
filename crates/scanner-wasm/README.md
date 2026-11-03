@@ -32,7 +32,7 @@ Config fields (all optional): `formats`, `preprocessing`, `tryRotations`,
 ## Build
 
 ```bash
-cd packages/scanner-web && npm run build:wasm
+npm run build:wasm -w @gueshbzh-perso/scanner   # from the repository root
 ```
 
 ## Tests

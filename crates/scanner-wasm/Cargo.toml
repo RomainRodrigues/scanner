@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 description = "WebAssembly bindings for the scanner QR/barcode library"
 
 [lib]
@@ -30,3 +32,6 @@ rxing = { workspace = true, features = ["encoders"] }
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-O3", "--enable-simd", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+
+[lints]
+workspace = true

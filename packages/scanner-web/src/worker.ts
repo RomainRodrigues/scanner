@@ -35,7 +35,13 @@ scope.onmessage = async (ev) => {
         break;
       }
       case 'scan': {
-        const results = engine().scan(new Uint8Array(msg.buffer), msg.width, msg.height, msg.format, msg.options);
+        const results = engine().scan(
+          new Uint8Array(msg.buffer),
+          msg.width,
+          msg.height,
+          msg.format,
+          msg.options,
+        );
         scope.postMessage({ id: msg.id, ok: true, results, buffer: msg.buffer }, [msg.buffer]);
         break;
       }

@@ -5,42 +5,62 @@ use serde::{Deserialize, Serialize};
 /// A 2D point representing a corner of a detected barcode.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Point {
+    /// Horizontal coordinate, in pixels from the left edge.
     pub x: f32,
+    /// Vertical coordinate, in pixels from the top edge.
     pub y: f32,
 }
 
 impl Point {
+    /// Create a point.
     pub fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
 }
 
-/// The detected barcode format.
+/// Barcode symbology.
+///
+/// Serialized in `snake_case` (`"qr_code"`, `"ean_13"`…): this is the spelling
+/// used by the JavaScript API for both the `formats` option and results.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BarcodeFormat {
-    // 2D formats
+    // ── 2D ──
+    /// QR Code (ISO/IEC 18004).
     QrCode,
+    /// Micro QR. rxing has no dedicated reader: it is decoded by the QR reader
+    /// and reported as [`BarcodeFormat::QrCode`].
     MicroQr,
+    /// Data Matrix (ISO/IEC 16022).
     DataMatrix,
+    /// Aztec (ISO/IEC 24778).
     Aztec,
+    /// PDF417 (ISO/IEC 15438).
     Pdf417,
 
-    // 1D formats
+    // ── 1D ──
+    /// Code 128 (ISO/IEC 15417).
     #[serde(rename = "code_128")]
     Code128,
+    /// Code 39 (ISO/IEC 16388). No mandatory check digit.
     #[serde(rename = "code_39")]
     Code39,
+    /// Code 93.
     #[serde(rename = "code_93")]
     Code93,
+    /// EAN-13 (ISO/IEC 15420).
     #[serde(rename = "ean_13")]
     Ean13,
+    /// EAN-8 (ISO/IEC 15420).
     #[serde(rename = "ean_8")]
     Ean8,
+    /// UPC-A (ISO/IEC 15420).
     UpcA,
+    /// UPC-E, the 6-digit zero-suppressed UPC (ISO/IEC 15420).
     UpcE,
-    /// Interleaved 2-of-5
+    /// Interleaved 2 of 5 (ISO/IEC 16390).
     Itf,
+    /// Codabar.
     Codabar,
 
     /// Any other format not explicitly listed

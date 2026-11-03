@@ -16,9 +16,10 @@ let statsTimer: ReturnType<typeof setInterval> | undefined;
 
 async function ensureReader(): Promise<BarcodeReader> {
   if (reader) return reader;
+  if (!host.value) throw new Error('BarcodeScanner is not mounted');
   // Imported lazily: the SDK only runs in the browser.
   const { BarcodeReader } = await import('@gueshbzh-perso/scanner');
-  reader = await BarcodeReader.create({ host: host.value!, formats: props.formats });
+  reader = await BarcodeReader.create({ host: host.value, formats: props.formats });
   reader.on('detected', (codes) => emit('detected', codes));
   reader.on('error', (err) => emit('error', err));
   return reader;
@@ -70,6 +71,8 @@ defineExpose({ start, stop, running });
   background: #000;
 }
 @media (min-width: 700px) {
-  .barcode-scanner { aspect-ratio: 4 / 3; }
+  .barcode-scanner {
+    aspect-ratio: 4 / 3;
+  }
 }
 </style>

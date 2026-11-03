@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 description = "High-performance QR code and barcode scanning engine in pure Rust"
 
 [features]
@@ -30,3 +32,6 @@ env_logger = { workspace = true }
 [[bench]]
 name = "scan_benchmark"
 harness = false
+
+[lints]
+workspace = true
