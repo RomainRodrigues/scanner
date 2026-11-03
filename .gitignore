@@ -15,18 +15,6 @@
 # Benchmark results (HTML reports)
 /criterion/
 
-# Generated test artifacts
-tests/images/qr/*.png
-tests/images/qr/*.jpg
-tests/images/barcode_1d/*.png
-tests/images/barcode_1d/*.jpg
-tests/images/barcode_2d/*.png
-tests/images/edge_cases/*.png
-tests/images/edge_cases/*.jpg
-
-# Keep the generator script
-!tests/images/generate_test_images.py
-
 # WASM / SDK build output
 crates/scanner-wasm/pkg/
 packages/*/dist/

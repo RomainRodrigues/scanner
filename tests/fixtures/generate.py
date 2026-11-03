@@ -5,8 +5,11 @@ Generate test barcode images for the scanner test suite.
 Requires:
     pip install qrcode pillow python-barcode
 
+The generated images are committed: only re-run this script to change or add
+fixtures, then update the expected values in crates/scanner-core/tests/.
+
 Usage:
-    python3 generate_test_images.py
+    python3 tests/fixtures/generate.py
 """
 
 import os

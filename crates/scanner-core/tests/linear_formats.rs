@@ -43,7 +43,7 @@ fn noisy(img: &GrayImage, seed: &mut u64) -> GrayImage {
     let mut o = img.clone();
     for p in o.pixels_mut() {
         let n = (lcg(seed) % 13) as i32 - 6;
-        p.0[0] = (p.0[0] as i32 + n).clamp(0, 255) as u8;
+        p.0[0] = (i32::from(p.0[0]) + n).clamp(0, 255) as u8;
     }
     o
 }

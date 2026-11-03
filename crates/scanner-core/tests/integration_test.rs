@@ -1,281 +1,140 @@
-//! Integration tests for scanner-core.
+//! Integration tests on the committed fixture images (`tests/fixtures/`).
 //!
-//! These tests use real barcode images from the `tests/images/` directory.
-//! Run with: `cargo test --workspace`
+//! Fixtures are versioned so these tests always run: a missing file is a test
+//! failure, never a silent skip. Regenerate them with `tests/fixtures/generate.py`.
 
-use scanner_core::{BarcodeFormat, PixelFormat, ScanSession, Scanner, ScannerConfig};
+use std::path::PathBuf;
 
-// ── Helper ────────────────────────────────────────────────────────────────────
+use scanner_core::{
+    BarcodeFormat, PixelFormat, Roi, ScanError, ScanSession, Scanner, ScannerConfig,
+};
 
-/// Load an image and scan it, returning the result text if found.
-fn scan_test_image(path: &str) -> Result<String, scanner_core::ScanError> {
-    let scanner = Scanner::new(ScannerConfig::image_file());
-    let results = scanner.scan_file(&format!("../../tests/images/{path}"))?;
-    if let Some(res) = results.into_iter().next() {
-        Ok(res.text)
-    } else {
-        Err(scanner_core::ScanError::NotFound)
-    }
+const LONG_QR: &str = "Hello, Scanner! This is a blurry QR code test.";
+
+fn fixture(name: &str) -> PathBuf {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures")
+        .join(name);
+    assert!(path.exists(), "missing fixture {}", path.display());
+    path
 }
 
-// ── Scanner API tests ─────────────────────────────────────────────────────────
-
-#[test]
-fn test_scan_blank_image_returns_not_found() {
-    let scanner = Scanner::with_defaults();
-    let data = vec![255u8; 200 * 200 * 4];
-    let result = scanner.scan_frame(&data, 200, 200, PixelFormat::Rgba);
-    assert!(result.is_err(), "Blank image should not decode anything");
+fn luma(name: &str) -> image::GrayImage {
+    image::open(fixture(name))
+        .expect("readable fixture")
+        .to_luma8()
 }
 
-#[test]
-fn test_scan_frame_validates_buffer_size() {
-    let scanner = Scanner::with_defaults();
-    let data = vec![0u8; 10]; // Way too small for 640×480 RGBA
-    let result = scanner.scan_frame(&data, 640, 480, PixelFormat::Rgba);
-    assert!(result.is_err());
+/// Scan a fixture with the static-image configuration and return `(text, format)` pairs.
+fn scan(name: &str, config: ScannerConfig) -> Result<Vec<(String, BarcodeFormat)>, ScanError> {
+    let path = fixture(name);
+    let results = Scanner::new(config).scan_file(path.to_str().expect("utf-8 path"))?;
+    Ok(results.into_iter().map(|r| (r.text, r.format)).collect())
 }
 
-#[test]
-fn test_scan_session_basic_flow() {
-    let mut session = ScanSession::new(ScannerConfig::realtime());
-    let data = vec![200u8; 100 * 100 * 4];
-    // Should not crash, should return None for a blank frame
-    let result = session.process_frame(&data, 100, 100, PixelFormat::Rgba);
-    assert!(result.is_none());
+fn single(name: &str) -> (String, BarcodeFormat) {
+    let mut results =
+        scan(name, ScannerConfig::image_file()).unwrap_or_else(|e| panic!("{name}: {e}"));
+    assert_eq!(results.len(), 1, "{name}: expected exactly one code");
+    results.remove(0)
 }
 
-#[test]
-fn test_scan_session_stats_update() {
-    let mut session = ScanSession::new(ScannerConfig::default());
-    let data = vec![200u8; 100 * 100 * 4];
-    for _ in 0..5 {
-        session.process_frame(&data, 100, 100, PixelFormat::Rgba);
-    }
-    assert!(session.stats().frames_submitted >= 5);
-    assert!(session.stats().avg_scan_time_ms >= 0.0);
-}
+// ── Decoding of every fixture ─────────────────────────────────────────────────
 
 #[test]
-fn test_scan_session_reset() {
-    let mut session = ScanSession::new(ScannerConfig::default());
-    let data = vec![200u8; 100 * 100 * 4];
-    session.process_frame(&data, 100, 100, PixelFormat::Rgba);
-    session.reset();
-    assert_eq!(session.stats().frames_submitted, 0);
-    assert_eq!(session.stats().codes_detected, 0);
-}
-
-// ── Image-based tests (require test images) ───────────────────────────────────
-
-#[test]
-fn test_scan_qr_clean() {
-    match scan_test_image("qr/clean_hd.png") {
-        Ok(text) => {
-            assert!(!text.is_empty(), "Decoded QR text should not be empty");
-            println!("QR clean decoded: {text}");
-        }
-        Err(scanner_core::ScanError::ImageLoad { .. }) => {
-            println!("Skipping: test image not found")
-        }
-        Err(e) => panic!("Test failed: {:?}", e),
+fn decodes_qr_fixtures() {
+    let cases = [
+        ("qr/clean_hd.png", "https://github.com/romrd/scanner"),
+        ("qr/tiny_in_large.png", "Tiny code"),
+        ("qr/rotated_45deg.png", LONG_QR),
+        ("qr/inverted.png", LONG_QR),
+        ("qr/dark_low_light.jpg", LONG_QR),
+        ("qr/blurry_camera.jpg", LONG_QR),
+    ];
+    for (name, expected) in cases {
+        assert_eq!(
+            single(name),
+            (expected.to_string(), BarcodeFormat::QrCode),
+            "{name}"
+        );
     }
 }
 
 #[test]
-fn test_scan_qr_blurry() {
-    match scan_test_image("qr/blurry_camera.jpg") {
-        Ok(text) => {
-            assert!(!text.is_empty());
-            println!("QR blurry decoded: {text}");
-        }
-        Err(scanner_core::ScanError::ImageLoad { .. }) => {
-            println!("Skipping: test image not found")
-        }
-        Err(e) => panic!("Test failed: {:?}", e),
+fn decodes_linear_fixtures() {
+    let cases = [
+        (
+            "barcode_1d/ean13_clean.png",
+            "5901234123457",
+            BarcodeFormat::Ean13,
+        ),
+        ("barcode_1d/upc_a.png", "012345678905", BarcodeFormat::UpcA),
+        (
+            "barcode_1d/code128.png",
+            "SCANNER-TEST-128",
+            BarcodeFormat::Code128,
+        ),
+    ];
+    for (name, text, format) in cases {
+        assert_eq!(single(name), (text.to_string(), format), "{name}");
     }
 }
 
 #[test]
-fn test_scan_ean13() {
-    match scan_test_image("barcode_1d/ean13_clean.png") {
-        Ok(text) => {
-            assert_eq!(text.len(), 13, "EAN-13 should decode to 13 digits");
-            println!("EAN-13 decoded: {text}");
-        }
-        Err(scanner_core::ScanError::ImageLoad { .. }) => {
-            println!("Skipping: test image not found")
-        }
-        Err(e) => panic!("Test failed: {:?}", e),
-    }
+fn photo_without_code_is_not_found() {
+    assert!(matches!(
+        scan("edge_cases/no_code.jpg", ScannerConfig::image_file()),
+        Err(ScanError::NotFound)
+    ));
 }
 
 #[test]
-fn test_scan_code128() {
-    match scan_test_image("barcode_1d/code128.png") {
-        Ok(text) => {
-            assert!(!text.is_empty());
-            println!("Code 128 decoded: {text}");
-        }
-        Err(scanner_core::ScanError::ImageLoad { .. }) => {
-            println!("Skipping: test image not found")
-        }
-        Err(e) => panic!("Test failed: {:?}", e),
-    }
+fn decodes_multiple_codes_in_one_image() {
+    let mut texts: Vec<String> = scan("qr/multiple.png", ScannerConfig::image_file())
+        .expect("two codes")
+        .into_iter()
+        .map(|(t, _)| t)
+        .collect();
+    texts.sort();
+    assert_eq!(texts, ["Code A", "Code B"]);
 }
 
-#[test]
-fn test_scan_rotated_qr() {
-    let scanner = Scanner::new(ScannerConfig {
-        try_rotations: true,
-        ..ScannerConfig::image_file()
-    });
-
-    if std::path::Path::new("../../tests/images/qr/rotated_45deg.png").exists() {
-        let result = scanner.scan_file("../../tests/images/qr/rotated_45deg.png");
-        // May or may not detect (45° is not a multiple of 90°, but preprocessing may help)
-        println!("Rotated QR result: {:?}", result.map(|r| r[0].text.clone()));
-    } else {
-        println!("Skipping: test image not found");
-    }
-}
+// ── Format filter (regression: rxing does not strictly honour PossibleFormats) ─
 
 #[test]
-fn test_format_detection() {
-    // QR-only config should only detect QR codes
-    let scanner = Scanner::new(ScannerConfig::qr_only());
-    // A blank image should still return NotFound
-    let data = vec![255u8; 200 * 200 * 4];
-    let result = scanner.scan_frame(&data, 200, 200, PixelFormat::Rgba);
-    assert!(result.is_err());
-}
-
-// ── Pixel format conversion tests ─────────────────────────────────────────────
-
-#[test]
-fn test_rgb_frame_accepted() {
-    let scanner = Scanner::with_defaults();
-    let data = vec![200u8; 100 * 100 * 3]; // RGB
-                                           // Should not crash (may return NotFound)
-    let _ = scanner.scan_frame(&data, 100, 100, PixelFormat::Rgb);
-}
-
-#[test]
-fn test_luma_frame_accepted() {
-    let scanner = Scanner::with_defaults();
-    let data = vec![200u8; 100 * 100]; // Luma
-    let _ = scanner.scan_frame(&data, 100, 100, PixelFormat::Luma);
-}
-
-#[test]
-fn test_nv21_frame_accepted() {
-    let scanner = Scanner::with_defaults();
-    let size = 100 * 100 + 100 * 100 / 2; // NV21 size
-    let data = vec![200u8; size];
-    let _ = scanner.scan_frame(&data, 100, 100, PixelFormat::Nv21);
-}
-
-#[test]
-fn test_yuy2_frame_accepted() {
-    let scanner = Scanner::with_defaults();
-    let data = vec![200u8; 100 * 100 * 2]; // YUY2
-    let _ = scanner.scan_frame(&data, 100, 100, PixelFormat::Yuy2);
-}
-
-// ── Format filter tests (regression for the format-passthrough bug) ────────────
-
-/// A scanner with a Code128-only filter must not return QR code results.
-/// Regression test: before the fix, rxing could ignore PossibleFormats and
-/// the result was never validated against the requested format list.
-#[test]
-fn test_code128_filter_does_not_return_qr() {
-    let scanner = Scanner::new(ScannerConfig {
+fn format_filter_rejects_other_symbologies() {
+    let code128_only = ScannerConfig {
         formats: Some(vec![BarcodeFormat::Code128]),
-        ..ScannerConfig::default()
-    });
-
-    let test_path = "../../tests/images/qr/clean_hd.png";
-    if !std::path::Path::new(test_path).exists() {
-        println!("Skipping test: test image not found");
-        return;
-    }
-
-    let result = scanner.scan_file(test_path);
-    assert!(
-        result.is_err(),
-        "QR code image should return NotFound when Code128 format is forced"
-    );
-}
-
-/// QrCode-only config: any successful decode must be QR or MicroQR.
-#[test]
-fn test_qr_only_returns_only_qr_formats() {
-    let scanner = Scanner::new(ScannerConfig::qr_only());
-
-    let test_path = "../../tests/images/barcode_1d/ean13_clean.png";
-    if !std::path::Path::new(test_path).exists() {
-        println!("Skipping test: test image not found");
-        return;
-    }
-
-    let result = scanner.scan_file(test_path);
-    assert!(
-        result.is_err(),
-        "EAN-13 barcode should return NotFound when only QrCode format is requested"
-    );
-}
-
-/// QrCode filter should still find QR codes when present (allowlist must not block valid formats).
-#[test]
-fn test_qr_filter_allows_qr_decode() {
-    let scanner = Scanner::new(ScannerConfig {
-        formats: Some(vec![BarcodeFormat::QrCode]),
-        try_rotations: true,
         ..ScannerConfig::image_file()
-    });
+    };
+    assert!(matches!(
+        scan("qr/clean_hd.png", code128_only),
+        Err(ScanError::NotFound)
+    ));
 
-    let test_path = "../../tests/images/qr/clean_hd.png";
-    if !std::path::Path::new(test_path).exists() {
-        println!("Skipping test_qr_filter_allows_qr_decode: test image not found");
-        return;
-    }
-
-    match scanner.scan_file(test_path) {
-        Ok(results) => {
-            assert!(!results.is_empty(), "Should have decoded at least one QR");
-            assert!(
-                matches!(
-                    results[0].format,
-                    BarcodeFormat::QrCode | BarcodeFormat::MicroQr
-                ),
-                "Expected QrCode format, got {:?}",
-                results[0].format
-            );
-        }
-        Err(scanner_core::ScanError::NotFound) => {
-            println!("QR not found — image may be missing or degraded");
-        }
-        Err(e) => panic!("Unexpected error: {e:?}"),
-    }
+    let qr_only = ScannerConfig {
+        formats: Some(vec![BarcodeFormat::QrCode, BarcodeFormat::MicroQr]),
+        ..ScannerConfig::image_file()
+    };
+    assert!(matches!(
+        scan("barcode_1d/ean13_clean.png", qr_only.clone()),
+        Err(ScanError::NotFound)
+    ));
+    assert_eq!(
+        scan("qr/clean_hd.png", qr_only).unwrap()[0].1,
+        BarcodeFormat::QrCode
+    );
 }
 
-// ── v0.4 behaviour ────────────────────────────────────────────────────────────
-
-fn load_luma(path: &str) -> Option<image::GrayImage> {
-    image::open(format!("../../tests/images/{path}"))
-        .ok()
-        .map(|i| i.to_luma8())
-}
+// ── Geometry ──────────────────────────────────────────────────────────────────
 
 /// Result points must be expressed in full-frame coordinates, even with a ROI.
 #[test]
-fn test_roi_points_are_in_frame_coordinates() {
-    let Some(img) = load_luma("qr/tiny_in_large.png") else {
-        return;
-    };
+fn roi_points_are_in_frame_coordinates() {
+    let img = luma("qr/tiny_in_large.png");
     let (w, h) = img.dimensions();
     let scanner = Scanner::new(ScannerConfig {
-        roi: Some(scanner_core::Roi::centered(0.5)),
+        roi: Some(Roi::centered(0.5)),
         ..ScannerConfig::default()
     });
     let results = scanner
@@ -297,46 +156,88 @@ fn test_roi_points_are_in_frame_coordinates() {
     }
 }
 
+// ── Input validation ──────────────────────────────────────────────────────────
+
 #[test]
-fn test_multiple_codes_in_one_image() {
-    let Some(img) = load_luma("qr/multiple.png") else {
-        return;
-    };
-    let (w, h) = img.dimensions();
-    let scanner = Scanner::new(ScannerConfig {
-        max_results: 4,
+fn blank_frame_is_not_found() {
+    let scanner = Scanner::with_defaults();
+    let data = vec![255u8; 200 * 200 * 4];
+    assert!(matches!(
+        scanner.scan_frame(&data, 200, 200, PixelFormat::Rgba),
+        Err(ScanError::NotFound)
+    ));
+}
+
+#[test]
+fn undersized_buffer_is_rejected() {
+    let scanner = Scanner::with_defaults();
+    assert!(matches!(
+        scanner.scan_frame(&[0u8; 10], 640, 480, PixelFormat::Rgba),
+        Err(ScanError::InvalidImage(_))
+    ));
+}
+
+#[test]
+fn every_pixel_format_is_accepted() {
+    let scanner = Scanner::with_defaults();
+    let (w, h) = (100u32, 100u32);
+    for format in [
+        PixelFormat::Rgba,
+        PixelFormat::Rgb,
+        PixelFormat::Luma,
+        PixelFormat::Nv21,
+        PixelFormat::Yuy2,
+    ] {
+        let data = vec![200u8; format.buffer_size(w, h)];
+        assert!(
+            matches!(
+                scanner.scan_frame(&data, w, h, format),
+                Err(ScanError::NotFound)
+            ),
+            "{format:?}"
+        );
+    }
+}
+
+// ── Real-time session ─────────────────────────────────────────────────────────
+
+fn session() -> ScanSession {
+    ScanSession::new(ScannerConfig {
+        adaptive_throttle: false,
         ..ScannerConfig::default()
-    });
-    let results = scanner
-        .scan_frame(img.as_raw(), w, h, PixelFormat::Luma)
-        .unwrap();
-    let mut texts: Vec<_> = results.iter().map(|r| r.text.as_str()).collect();
-    texts.sort();
-    assert_eq!(texts, vec!["Code A", "Code B"]);
+    })
+}
+
+#[test]
+fn session_stats_and_reset() {
+    let mut s = session();
+    let data = vec![200u8; 100 * 100 * 4];
+    for _ in 0..5 {
+        assert!(s
+            .process_frame(&data, 100, 100, PixelFormat::Rgba)
+            .is_none());
+    }
+    assert_eq!(s.stats().frames_submitted, 5);
+    assert_eq!(s.stats().frames_scanned, 5);
+    s.reset();
+    assert_eq!(s.stats().frames_submitted, 0);
+    assert_eq!(s.stats().codes_detected, 0);
 }
 
 /// The session spreads fallback strategies over frames: an inverted code that
-/// the fast path cannot read must still be found within a few frames.
+/// the fast path cannot read must still be found within a few frames, and is
+/// then reported only once during the cooldown.
 #[test]
-fn test_session_finds_inverted_code_within_a_few_frames() {
-    let Some(img) = load_luma("qr/inverted.png") else {
-        return;
-    };
+fn session_finds_inverted_code_and_deduplicates_it() {
+    let img = luma("qr/inverted.png");
     let (w, h) = img.dimensions();
-    let mut session = ScanSession::new(ScannerConfig {
-        adaptive_throttle: false,
-        ..ScannerConfig::default()
-    });
-    let found = (0..6).find_map(|_| session.process_frame(img.as_raw(), w, h, PixelFormat::Luma));
-    assert!(
-        found.is_some(),
-        "inverted QR should be decoded by a rotating strategy"
-    );
-    // Same code again within the cooldown: never reported twice.
+    let mut s = session();
+    let found = (0..6).find_map(|_| s.process_frame(img.as_raw(), w, h, PixelFormat::Luma));
+    assert_eq!(found.expect("inverted QR")[0].text, LONG_QR);
     for _ in 0..6 {
-        assert!(session
+        assert!(s
             .process_frame(img.as_raw(), w, h, PixelFormat::Luma)
             .is_none());
     }
-    assert_eq!(session.stats().codes_detected, 1);
+    assert_eq!(s.stats().codes_detected, 1);
 }
