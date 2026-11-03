@@ -5,47 +5,47 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   rust:
+    name: Rust — fmt, clippy, tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/setup-toolchain
         with:
-          targets: wasm32-unknown-unknown
-          components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
-      - name: Generate test images
-        run: pip install qrcode pillow python-barcode && python3 tests/images/generate_test_images.py
+          node: 'false'
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy -p scanner-wasm --target wasm32-unknown-unknown --all-targets -- -D warnings
       - run: cargo test --workspace --release
-      - name: Install wasm-bindgen-cli (version pinned by Cargo.lock)
-        run: |
-          VERSION=$(grep -A1 'name = "wasm-bindgen"$' Cargo.lock | sed -n 's/version = "\(.*\)"/\1/p')
-          cargo install wasm-bindgen-cli --version "$VERSION" --locked
+      - run: cargo doc --no-deps --workspace
+        env:
+          RUSTDOCFLAGS: -D warnings
       - name: WASM tests (Node.js)
         run: cargo test -p scanner-wasm --target wasm32-unknown-unknown --test web
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Build the SDK
-        working-directory: packages/scanner-web
-        run: |
-          npm ci
-          npm install -g binaryen
-          npm run build
+  web:
+    name: SDK & demo — lint, build, e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-toolchain
+      - run: npm run lint
+      - run: npm run build
+      - run: npm run typecheck
       - name: End-to-end (headless Chromium, fake camera)
-        working-directory: packages/scanner-web
         run: |
-          sudo apt-get update && sudo apt-get install -y ffmpeg
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
           npx playwright install --with-deps chromium
           npm run test:e2e
-      - name: Build the Nuxt demo
-        working-directory: apps/demo-nuxt
-        run: |
-          npm ci
-          npm run build
+      - name: Build the demo
+        run: npm run generate

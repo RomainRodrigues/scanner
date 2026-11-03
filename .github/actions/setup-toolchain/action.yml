@@ -1,0 +1,42 @@
+name: Setup toolchain
+description: Rust (stable + wasm32 target), wasm-bindgen CLI pinned by Cargo.lock, wasm-opt, Node.js and npm dependencies.
+
+inputs:
+  node:
+    description: Also set up Node.js and install npm dependencies.
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+        components: clippy, rustfmt
+
+    - uses: Swatinem/rust-cache@v2
+
+    - name: Read wasm-bindgen version from Cargo.lock
+      id: versions
+      shell: bash
+      run: |
+        version=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
+        echo "wasm-bindgen=$version" >> "$GITHUB_OUTPUT"
+
+    # Prebuilt binaries: much faster than `cargo install`.
+    - uses: taiki-e/install-action@v2
+      with:
+        tool: wasm-bindgen@${{ steps.versions.outputs.wasm-bindgen }}
+
+    - if: inputs.node == 'true'
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+
+    - if: inputs.node == 'true'
+      shell: bash
+      run: |
+        npm ci
+        # wasm-opt (binaryen): ~20% smaller WebAssembly output.
+        npm install -g binaryen@123
