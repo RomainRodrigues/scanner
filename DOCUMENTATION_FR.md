@@ -86,8 +86,8 @@ les traitements coûteux dans le temps. C'est ce qui manquait à l'ancienne vers
 
 Prérequis : Rust (rustup + cargo) et Node.js 20+. La cible `wasm32-unknown-unknown`
 et `wasm-bindgen-cli` (à la version exacte de `Cargo.lock`) sont **installés
-automatiquement** au premier build. Optionnel : `npm install -g binaryen` (`wasm-opt`,
-binaire ~20 % plus petit).
+automatiquement** au premier build, et `wasm-opt` (qui réduit le `.wasm` d'environ 7 %)
+est installé par `npm install`.
 
 Le dépôt utilise les **npm workspaces** : un seul `npm install`, à la racine, installe
 le SDK et la démo.
@@ -140,12 +140,35 @@ Règles de contribution, cas particuliers connus et conventions : [CLAUDE.md](CL
 
 ---
 
-## 📦 Publier sur npm
+## 📦 Versions et publication sur npm
 
-```bash
-npm run build
-npm publish -w @gueshbzh-perso/scanner --access public
-```
+**Rien à modifier à la main.** Il n'y a qu'une version pour tout le projet, gérée par
+[release-please](https://github.com/googleapis/release-please) à partir des messages de
+commit (Conventional Commits) :
+
+1. À chaque push sur `main`, le workflow *Release* ouvre ou met à jour une **PR de release**
+   (« chore(main): release 0.5.0 »). Elle calcule la prochaine version (`fix:` → patch,
+   `feat:` → minor ; avant la 1.0, un changement cassant `feat!:` passe aussi en minor),
+   met à jour `Cargo.toml`, `packages/scanner-web/package.json`, `CHANGELOG.md` et les
+   lockfiles.
+2. Tu relis la PR, tu la fusionnes quand tu veux publier → tag `v0.5.0`, release GitHub, et
+   publication du SDK sur npm avec provenance.
+
+**À configurer une fois :**
+
+- Première publication (le paquet `@gueshbzh-perso/scanner` n'existe pas encore sur npm) :
+  créer un token npm *Automation* (npmjs.com → Access Tokens), l'ajouter en secret
+  `NPM_TOKEN` (GitHub → Settings → Secrets and variables → Actions), puis lancer à la main
+  le workflow *Release* (onglet Actions → Release → Run workflow) : il publie la 0.4.0 et
+  crée la release `v0.4.0`.
+- Ensuite, recommandé : activer le **trusted publishing** sur npmjs.com (paquet → Settings →
+  Trusted Publisher → GitHub Actions, dépôt `RomainRodrigues/scanner`, workflow
+  `release.yml`, environnement `npm`) et supprimer le secret `NPM_TOKEN` : plus aucun
+  token à faire tourner.
+- Autoriser GitHub Actions à créer des PR : Settings → Actions → General → *Allow GitHub
+  Actions to create and approve pull requests*.
+
+Publication manuelle de secours : `npm run build && npm publish -w @gueshbzh-perso/scanner --access public`.
 
 Côté client avec **Vite / Nuxt**, exclure le paquet du pré-bundling, sinon les URLs
 du worker et du `.wasm` sont cassées :

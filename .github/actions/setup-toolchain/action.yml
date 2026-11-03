@@ -1,5 +1,5 @@
 name: Setup toolchain
-description: Rust (stable + wasm32 target), wasm-bindgen CLI pinned by Cargo.lock, wasm-opt, Node.js and npm dependencies.
+description: Rust (stable + wasm32 target), wasm-bindgen CLI pinned by Cargo.lock, Node.js and npm dependencies (incl. binaryen / wasm-opt).
 
 inputs:
   node:
@@ -33,10 +33,8 @@ runs:
       with:
         node-version: 22
         cache: npm
+        registry-url: https://registry.npmjs.org
 
     - if: inputs.node == 'true'
       shell: bash
-      run: |
-        npm ci
-        # wasm-opt (binaryen): ~20% smaller WebAssembly output.
-        npm install -g binaryen@123
+      run: npm ci

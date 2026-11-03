@@ -1,0 +1,88 @@
+name: Release
+
+# Versioning is driven by Conventional Commits (see CLAUDE.md):
+# 1. On every push to main, release-please opens / updates a "release PR" that
+#    bumps the single project version (Cargo workspace + npm package) and writes
+#    CHANGELOG.md from the commit messages.
+# 2. Merging that PR tags the release, creates the GitHub release and publishes
+#    the SDK to npm.
+# `workflow_dispatch` publishes the current version by hand (first release).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write # npm provenance / trusted publishing
+
+jobs:
+  release-please:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      pr: ${{ steps.release.outputs.pr }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # release-please edits Cargo.toml and package.json but not the lockfiles,
+  # which also record the workspace versions: refresh them on the release PR.
+  sync-lockfiles:
+    needs: release-please
+    if: needs.release-please.outputs.pr
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Update workspace versions in lockfiles
+        run: |
+          cargo update --workspace
+          npm install --package-lock-only --ignore-scripts
+      - name: Commit
+        run: |
+          if git diff --quiet -- Cargo.lock package-lock.json; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: sync lockfiles with the release version" -- Cargo.lock package-lock.json
+          git push
+
+  publish:
+    needs: release-please
+    if: always() && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-toolchain
+      - run: npm run build
+      - name: Check the package contents
+        run: npm pack --dry-run -w @gueshbzh-perso/scanner
+      # Trusted publishing (OIDC) needs npm >= 11.5.1; Node 22 ships npm 10.
+      - run: npm install -g npm@latest
+      - name: Publish to npm
+        run: npm publish -w @gueshbzh-perso/scanner --access public --provenance
+        env:
+          # Not needed once npm trusted publishing is configured for this workflow.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Create the GitHub release (manual runs only)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./packages/scanner-web/package.json').version")
+          if gh release view "v$version" > /dev/null 2>&1; then exit 0; fi
+          # Section of CHANGELOG.md for this version (up to the next "## [" heading).
+          awk -v v="$version" '/^## \[/{p=index($0,"## [" v "]")==1; next} p' CHANGELOG.md > notes.md
+          gh release create "v$version" --target "$GITHUB_SHA" --title "v$version" --notes-file notes.md

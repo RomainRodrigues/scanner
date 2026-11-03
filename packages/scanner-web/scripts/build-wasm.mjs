@@ -4,7 +4,8 @@
 //
 // Requirements: Rust (rustup + cargo). The wasm32 target and the wasm-bindgen
 // CLI (pinned to the version in Cargo.lock) are installed automatically.
-// Optional:     wasm-opt (binaryen) on PATH for a smaller/faster binary.
+// wasm-opt comes from the `binaryen` devDependency (npm puts node_modules/.bin
+// on PATH); without it the build still works, just ~7% larger.
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -119,10 +120,9 @@ const targets = [
 ];
 
 const wasmOpt = has('wasm-opt');
+if (wasmOpt) console.log(`\n▶ ${output('wasm-opt', ['--version'])?.trim()}`);
 if (!wasmOpt)
-  console.warn(
-    '\n⚠ wasm-opt not found: skipping binary optimisation (install binaryen for ~20% smaller output)',
-  );
+  console.warn('\n⚠ wasm-opt not found: skipping binary optimisation (run `npm install` to get binaryen)');
 for (const [src, dest, flags] of targets) {
   if (wasmOpt) {
     run('wasm-opt', [

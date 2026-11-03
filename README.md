@@ -63,6 +63,10 @@ cargo test --workspace --release
   SDK build, type checks, end-to-end tests with a fake camera, demo build.
 - **Pages** (`.github/workflows/pages.yml`, every push to `main`): builds the Nuxt
   demo and deploys it to GitHub Pages.
+- **Release** (`.github/workflows/release.yml`): release-please keeps a release PR
+  open with the next version and changelog, computed from Conventional Commits;
+  merging it tags the release and publishes the SDK to npm. Versions are never
+  edited by hand.
 
 Contributing rules, known pitfalls and conventions: [CLAUDE.md](CLAUDE.md).
 French documentation: [DOCUMENTATION_FR.md](DOCUMENTATION_FR.md). Changes: [CHANGELOG.md](CHANGELOG.md).

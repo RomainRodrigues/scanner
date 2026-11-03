@@ -15,8 +15,10 @@ développement actuelles.** Concrètement, chaque changement :
 - garde l'API publique **documentée** (`missing_docs` est actif côté Rust, JSDoc côté TS) ;
 - n'introduit ni `unwrap()` hors tests, ni `unsafe` non justifié, ni `any` / `!` en TypeScript ;
 - est mesuré quand il touche la performance (chiffres avant / après dans le commit) ;
-- respecte les conventions : Conventional Commits (`feat:`, `fix:`, `build:`…),
-  `CHANGELOG.md` mis à jour, code et commentaires en anglais.
+- respecte les conventions : **Conventional Commits** (`feat:`, `fix:`, `perf:`, `docs:`,
+  `build:`, `ci:`, `chore:`…, `!` ou `BREAKING CHANGE:` pour un changement cassant),
+  code et commentaires en anglais. Les messages de commit **sont** le changelog : ils
+  doivent être clairs pour un utilisateur du SDK.
 
 Si du code existant ne respecte pas cette règle, on le corrige au passage.
 
@@ -62,8 +64,24 @@ CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
 ```
 
 `npm run build` installe seul la cible `wasm32-unknown-unknown` et la version de
-`wasm-bindgen-cli` épinglée par `Cargo.lock`. Hors de la CI, `CHROMIUM_PATH` permet
+`wasm-bindgen-cli` épinglée par `Cargo.lock` ; `wasm-opt` vient de `npm install` (binaryen). Hors de la CI, `CHROMIUM_PATH` permet
 aux tests e2e d'utiliser un Chromium existant.
+
+## Versions et publication
+
+Une **seule version** pour tout le projet, jamais modifiée à la main :
+
+1. Chaque push sur `main` → release-please (`.github/workflows/release.yml`) ouvre ou met
+   à jour une **PR de release**. Elle calcule la version à partir des commits (`fix:` →
+   patch, `feat:` → minor, `!` → major ; avant 1.0, un changement cassant fait un minor),
+   met à jour `Cargo.toml` (`workspace.package.version`), `packages/scanner-web/package.json`,
+   `CHANGELOG.md`, puis les deux lockfiles.
+2. Fusionner cette PR → tag `vX.Y.Z`, release GitHub et **publication npm** du SDK
+   (avec provenance).
+
+Les crates Rust ne sont pas publiées (`publish = false`) : elles sont livrées dans le
+paquet npm. Lancer manuellement le workflow *Release* (`workflow_dispatch`) publie la
+version courante (utilisé pour la première publication).
 
 ## Cas particuliers connus
 
@@ -91,6 +109,9 @@ aux tests e2e d'utiliser un Chromium existant.
 | Tunnel Cloudflare : hôte `*.trycloudflare.com` autorisé ; QR code seulement si stdout est un terminal | `apps/demo-nuxt/nuxt.config.ts`, README de la démo |
 | GitHub Pages sert le site sous `/<repo>/` → `NUXT_APP_BASE_URL` | `.github/workflows/pages.yml` |
 | `allow-unwrap-in-tests` de clippy ne couvre pas `#[wasm_bindgen_test]` | `crates/scanner-wasm/tests/web.rs` |
+| release-please met à jour `Cargo.toml` et `package.json` mais pas les lockfiles (qui recopient la version) → job dédié sur la PR de release | `.github/workflows/release.yml` (`sync-lockfiles`) |
+| Publication npm par OIDC (trusted publishing) : npm ≥ 11.5.1 requis, Node 22 n'embarque que npm 10 | `.github/workflows/release.yml` |
+| `wasm-opt` vient de la devDependency `binaryen` (dans le PATH via `npm run`) ; sans lui le build marche mais le `.wasm` est ~7 % plus gros | `packages/scanner-web/scripts/build-wasm.mjs` |
 
 ## Tests et fixtures
 

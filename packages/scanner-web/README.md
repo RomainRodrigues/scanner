@@ -135,7 +135,7 @@ npm run test:e2e   # headless Chromium with a fake camera (needs ffmpeg + Playwr
 
 `npm run build:wasm` only needs Rust (rustup + cargo): the `wasm32-unknown-unknown`
 target and the `wasm-bindgen-cli` version pinned in `Cargo.lock` are installed
-automatically on first run. `wasm-opt` (binaryen) is optional, for a smaller binary.
+automatically on first run; `wasm-opt` comes from the `binaryen` devDependency.
 
 ## License
 
