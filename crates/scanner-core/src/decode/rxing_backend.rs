@@ -11,8 +11,8 @@ use image::GrayImage;
 use rxing::common::HybridBinarizer;
 use rxing::multi::{GenericMultipleBarcodeReader, MultipleBarcodeReader};
 use rxing::{
-    BinaryBitmap, DecodeHints, Exceptions, Luma8LuminanceSource, LuminanceSource,
-    MultiFormatReader, PlanarYUVLuminanceSource, RXingResult, Reader,
+    BinaryBitmap, DecodeHints, Exceptions, Luma8Source, LuminanceSource, MultiFormatReader,
+    PlanarYUVLuminanceSource, RXingResult, Reader,
 };
 
 /// How hard the decoder should look for a code.
@@ -73,7 +73,7 @@ impl RxingDecoder {
         effort: Effort,
     ) -> Result<Vec<ScanResult>, ScanError> {
         let (width, height) = img.dimensions();
-        self.decode_raw(img.as_raw().clone(), width, height, effort)
+        self.decode_raw(img.as_raw(), width, height, effort)
     }
 
     /// Attempt to decode an inverted image (white bars on black background).
@@ -84,7 +84,7 @@ impl RxingDecoder {
     ) -> Result<Vec<ScanResult>, ScanError> {
         let (width, height) = img.dimensions();
         let inverted: Vec<u8> = img.as_raw().iter().map(|&p| 255 - p).collect();
-        self.decode_raw(inverted, width, height, effort)
+        self.decode_raw(&inverted, width, height, effort)
     }
 
     /// Decode 1D codes only, looking at **every row** of `img` and nothing else.
@@ -95,7 +95,7 @@ impl RxingDecoder {
     /// - rxing's 90° retry of the whole image: a row-wise threshold destroys
     ///   vertical codes anyway. The retry only happens when the luminance
     ///   source supports rotation, so this uses `PlanarYUVLuminanceSource`
-    ///   (no rotation support) instead of `Luma8LuminanceSource`.
+    ///   (no rotation support) instead of `Luma8Source`.
     ///
     /// Measured on a 1024×432 camera ROI (x86, native): 45 → 4 ms on a
     /// textured empty frame.
@@ -119,9 +119,12 @@ impl RxingDecoder {
         self.decode_source(source, hints)
     }
 
+    /// `luma` is borrowed, not copied: rxing ≥ 0.9.3 can read a slice
+    /// (`Luma8Source::new_with_slice`), which saves one copy of the image per
+    /// strategy.
     fn decode_raw(
         &self,
-        luma: Vec<u8>,
+        luma: &[u8],
         width: u32,
         height: u32,
         effort: Effort,
@@ -130,7 +133,8 @@ impl RxingDecoder {
             Effort::Fast => &self.hints_fast,
             Effort::Hard => &self.hints_hard,
         };
-        self.decode_source(Luma8LuminanceSource::new(luma, width, height), hints)
+        let source = Luma8Source::new_with_slice(luma, width, height).map_err(map_error)?;
+        self.decode_source(source, hints)
     }
 
     fn decode_source<S: LuminanceSource>(

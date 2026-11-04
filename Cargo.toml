@@ -37,7 +37,10 @@ todo = "warn"
 # Default features are disabled on purpose: they pull in encoders, ~15 image
 # codecs and `client_support` (chrono-tz, regex…) which bloat the WASM binary
 # and are never used by a scanner.
-rxing = { version = "0.9", default-features = false, features = [
+# 0.9.3 at least: `Luma8Source::new_with_slice` (decoding without copying the
+# image). That release also changed `Luma8LuminanceSource::new` to return a
+# `Result`, a breaking change in a patch version.
+rxing = { version = "0.9.3", default-features = false, features = [
     "decoders",
     "encoding_rs",
     "multi_barcode_readers",
