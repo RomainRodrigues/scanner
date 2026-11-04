@@ -225,10 +225,94 @@ export class CanvasGrabber implements FrameGrabber {
 export function createGrabber(backend: 'auto' | 'webgl' | 'canvas' = 'auto'): FrameGrabber {
   if (backend !== 'canvas') {
     const gl = WebGLGrabber.create();
-    if (gl) return gl;
+    if (gl) return backend === 'auto' ? new AdaptiveGrabber(gl, () => new CanvasGrabber()) : gl;
     if (backend === 'webgl') throw new Error('WebGL2 is not available');
   }
   return new CanvasGrabber();
+}
+
+/** Frames timed per backend before deciding. */
+const PROBE_FRAMES = 15;
+/** WebGL is kept without probing when its median grab is below this (ms). */
+const SLOW_GRAB_MS = 20;
+/** Canvas 2D must be this much faster to be kept: it blocks the main thread. */
+const CANVAS_WIN_RATIO = 0.6;
+
+/**
+ * `'auto'` backend: WebGL2, unless Canvas 2D is measured to be much faster on
+ * this device.
+ *
+ * WebGL does the crop / luma / downscale on the GPU and reads back 4× less
+ * data, asynchronously, so it is the right default. But on some GPUs the
+ * readback itself is slow (the fence takes tens of ms to signal), and then
+ * the grab limits the frame rate now that decoding runs in parallel. So when
+ * the median WebGL grab exceeds `SLOW_GRAB_MS`, Canvas 2D is timed on the
+ * next `PROBE_FRAMES` frames and kept only if clearly faster (`drawImage` +
+ * `getImageData` run on the main thread, while WebGL waits asynchronously).
+ * The decision is made once, from measurements: no device list.
+ */
+export class AdaptiveGrabber implements FrameGrabber {
+  private active: FrameGrabber;
+  private other: FrameGrabber | null = null;
+  private samples: number[] = [];
+  private webglMedian = 0;
+  private state: 'webgl' | 'probing' | 'decided' = 'webgl';
+
+  constructor(
+    private webgl: FrameGrabber,
+    private makeCanvas: () => FrameGrabber,
+    private now: () => number = () => performance.now(),
+  ) {
+    this.active = webgl;
+  }
+
+  get kind(): 'webgl' | 'canvas' {
+    return this.active.kind;
+  }
+
+  async grab(source: TexImageSource, rect: Rect, width: number, height: number, out: Uint8Array) {
+    const grabber = this.active;
+    const t0 = this.now();
+    await grabber.grab(source, rect, width, height, out);
+    if (this.state !== 'decided' && grabber === this.active) this.record(this.now() - t0);
+  }
+
+  private record(ms: number): void {
+    this.samples.push(ms);
+    if (this.samples.length < PROBE_FRAMES) return;
+    const median = medianOf(this.samples);
+    this.samples = [];
+    if (this.state === 'webgl') {
+      if (median < SLOW_GRAB_MS) {
+        this.state = 'decided';
+        return;
+      }
+      this.webglMedian = median;
+      this.other = this.webgl;
+      this.active = this.makeCanvas();
+      this.state = 'probing';
+      return;
+    }
+    // Probing Canvas 2D: keep it, or go back to WebGL.
+    this.state = 'decided';
+    if (median < this.webglMedian * CANVAS_WIN_RATIO) {
+      this.other?.destroy();
+    } else {
+      this.active.destroy();
+      this.active = this.webgl;
+    }
+    this.other = null;
+  }
+
+  destroy(): void {
+    this.active.destroy();
+    this.other?.destroy();
+  }
+}
+
+function medianOf(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[sorted.length >> 1] ?? 0;
 }
 
 /** BT.601 luma with integer arithmetic (same weights as the GPU path and the engine). */

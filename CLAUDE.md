@@ -52,7 +52,7 @@ relecture asynchrone) → pool de Web Workers en parallèle (`FrameDecoder` : pa
 
 ```bash
 npm install                     # une fois, à la racine (npm workspaces)
-npm run build                   # Rust → WASM (standard + SIMD) + TypeScript
+npm run build                   # Rust → WASM + TypeScript
 npm run dev                     # démo sur http://localhost:3000
 npm run tunnel                  # démo + tunnel Cloudflare (QR code) pour le téléphone
 npm run lint && npm run typecheck
@@ -114,6 +114,11 @@ version courante (utilisé pour la première publication).
 | Rotation des stratégies : une seule stratégie coûteuse par frame (×6,6 sur les frames vides) | `realtime/session.rs` |
 | Les stratégies de secours se partagent le **temps CPU**, pas les frames : sur une scène texturée `Hard` coûte ~6× `Linear` ; à une frame chacune, un téléphone lent (Galaxy A14, ~5 fps) ne relançait `Linear` que toutes les ~1,5 s. Premier cycle dans l'ordre de la liste ; aucune stratégie n'attend plus de 3 cycles (anti-famine) | `realtime/scheduler.rs` |
 | `Linear` décode **une ligne sur `row_step`** (le flou vertical rend les autres redondantes), avec les lecteurs 1D seuls et **sans** le réessai à 90° de rxing : ce réessai n'a lieu que si la source de luminance sait tourner, d'où `PlanarYUVLuminanceSource` (pas de rotation) au lieu de `Luma8LuminanceSource`. 69 → 19 ms sur une frame texturée | `decode/rxing_backend.rs` (`decode_rows`), `scanner.rs` (`decode_linear`) |
+| `Linear` ne seuille **que les lignes décodées** (`linear_enhance_rows`, identique à `sample_rows(linear_enhance(..))`, testé) ; l'image complète n'est calculée que si un code est lu, pour la vérification de zone de silence. Min/max glissants par **van Herk / Gil-Werman** (3 comparaisons par pixel, ~4× plus rapide que les deques) | `preprocess/linear.rs`, `scanner.rs` (`decode_linear`) |
+| CLAHE : tuiles de 8 px (≈ 6900 LUT pour 1024×432) ; le calcul des LUT dominait (14 ms sur 21) → une seule passe en `u32`, sortie identique à l'ancienne version (testé) | `preprocess/contrast.rs` |
+| Sauvola par **sommes glissantes** (mêmes entiers que les images intégrales, donc même sortie, testé) : plus de tables `u64` de ~7 Mo par appel | `preprocess/binarize.rs` |
+| Backend `auto` du grab : WebGL2, sauf si sa médiane dépasse 20 ms sur 15 frames ; Canvas 2D est alors mesuré et gardé seulement s'il est < 0,6 × WebGL (il bloque le thread principal). Décision unique, mesurée, sans liste d'appareils. Les scénarios e2e « webgl » forcent `backend: 'webgl'` (en headless le GPU est émulé et `auto` passerait en Canvas) | `src/grabber.ts` (`AdaptiveGrabber`), `test/unit/grabber.test.mjs` |
+| Les scripts de build **vident** `src/wasm` et `dist/wasm` avant d'écrire : un fichier d'un ancien build ne doit pas partir dans le paquet | `scripts/build-wasm.mjs`, `scripts/copy-wasm.mjs` |
 | Décodage **multi-workers** : l'état (ordonnanceur, confirmations, anti-doublons) doit exister en **un seul exemplaire**, sinon les confirmations 1D et la dé-duplication cassent entre workers → `ScanSession` sur le thread principal (`plan` / `commit`, quelques µs), workers sans état (`FrameDecoder`). Session et décodeurs doivent avoir la **même configuration** (un plan = un indice dans la liste des stratégies) | `realtime/decoder.rs`, `src/engine.ts` |
 | Tout plan doit revenir à `commit`, même si le worker échoue (rapport vide) : sinon l'ordonnanceur le compte « en vol » pour toujours | `src/engine.ts` (`processFrame`) |
 | Plans en vol comptés avec leur coût estimé : sans ça, 3 frames planifiées en même temps auraient la même stratégie | `realtime/scheduler.rs` |
@@ -132,7 +137,7 @@ version courante (utilisé pour la première publication).
 | Seules les erreurs du pipeline d'image (`GrabError`) déclenchent le repli WebGL → Canvas 2D | `src/reader.ts` |
 | Ligne 0 du framebuffer WebGL = haut de l'image (pas de flip) ; largeur de sortie multiple de 4 | `src/grabber.ts`, `src/geometry.ts` |
 | Les objets `URL` ne passent pas `postMessage` → on ne transmet que les options moteur | `src/core.ts` (`pickEngineOptions`) |
-| Glue JS identique pour les builds WASM standard et SIMD (vérifié au build) | `scripts/build-wasm.mjs` |
+| Un seul binaire WASM (pas de build `+simd128`) : l'auto-vectorisation n'apportait aucun gain mesurable sur ce décodeur (Node 22, frames texturées : 89 ms contre 84-93 ms) pour un build et un paquet deux fois plus gros. À reconsidérer seulement avec du SIMD écrit à la main dans les boucles chaudes, mesuré | `scripts/build-wasm.mjs` |
 | Son de détection : l'`AudioContext` doit être créé pendant un geste utilisateur (iOS) | `src/feedback.ts`, `src/reader.ts` |
 | Vite/Nuxt : `optimizeDeps.exclude` obligatoire, sinon les URL du worker et du `.wasm` cassent | `apps/demo-nuxt/nuxt.config.ts`, README du SDK |
 | Tunnel Cloudflare : hôte `*.trycloudflare.com` autorisé ; QR code seulement si stdout est un terminal | `apps/demo-nuxt/nuxt.config.ts`, README de la démo |

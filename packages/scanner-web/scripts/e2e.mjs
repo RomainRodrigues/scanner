@@ -53,18 +53,21 @@ function fakeCamera(name, image, size, { invert = false, photo = false } = {}) {
 
 const scenarios = [
   {
+    // WebGL forced: in headless Chromium the GPU is emulated (SwiftShader) and
+    // slow, so the 'auto' backend would switch to Canvas 2D and leave the
+    // WebGL path untested.
     name: 'qr-webgl-worker',
     image: 'qr/clean_hd.png',
     size: 330,
     expect: 'https://github.com/romrd/scanner',
-    options: {},
+    options: { processing: { backend: 'webgl' } },
   },
   {
     name: 'ean13-webgl-worker',
     image: 'barcode_1d/ean13_clean.png',
     size: 700,
     expect: '5901234123457',
-    options: { formats: ['ean_13'] },
+    options: { formats: ['ean_13'], processing: { backend: 'webgl' } },
   },
   {
     name: 'code128-canvas-inline',
@@ -79,10 +82,11 @@ const scenarios = [
     size: 330,
     invert: true,
     expect: 'https://github.com/romrd/scanner',
-    options: {},
+    options: { processing: { backend: 'webgl' } },
   },
   {
-    // Real phone photo: laser-engraved Code 128 on a cattle ear tag.
+    // Real phone photo: laser-engraved Code 128 on a cattle ear tag. Default
+    // ('auto') backend.
     name: 'ear-tag-photo',
     image: 'real/cattle_ear_tag_code128.jpg',
     size: 540,
@@ -149,7 +153,7 @@ for (const s of scenarios) {
     );
     const st = out.stats;
     const info =
-      `${st.backend}${st.worker ? `+${st.workers} workers` : ''}${st.simd ? '+simd' : ''} ` +
+      `${st.backend}${st.worker ? `+${st.workers} workers` : ''} ` +
       `${st.frameWidth}×${st.frameHeight}, ` +
       `first read ${out.elapsed.toFixed(0)} ms, ${st.fps.toFixed(1)} fps, decode ${st.decodeMs.toFixed(1)} ms, ` +
       `grab ${st.grabMs.toFixed(1)} ms`;
