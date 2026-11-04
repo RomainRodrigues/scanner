@@ -165,9 +165,10 @@ impl Scanner {
     ) -> Result<(Vec<ScanResult>, Option<GrayImage>), ScanError> {
         let results = match strategy {
             Strategy::Linear(scale) => {
-                let enhanced = preprocess::linear_enhance(img, scale);
-                let results = self.decode_linear(&enhanced)?;
-                return Ok((results, Some(enhanced)));
+                let results = self.decode_linear(img, scale)?;
+                // Full enhancement for the quiet-zone check only once a code
+                // was read (rare): empty frames only pay for the sampled rows.
+                return Ok((results, Some(preprocess::linear_enhance(img, scale))));
             }
             Strategy::Fast => self.decoder.decode_with(img, Effort::Fast),
             Strategy::Hard => self.decoder.decode_with(img, Effort::Hard),
@@ -185,12 +186,17 @@ impl Scanner {
         Ok((results, None))
     }
 
-    /// Decode a [`preprocess::linear_enhance`] output: 1D readers only, on one
-    /// row every [`row_step`](preprocess::linear::row_step) rows (the blur made
-    /// the others redundant). Points are returned in the coordinates of `enhanced`.
-    fn decode_linear(&self, enhanced: &GrayImage) -> Result<Vec<ScanResult>, ScanError> {
-        let step = preprocess::linear::row_step(enhanced.height());
-        let rows = preprocess::linear::sample_rows(enhanced, step);
+    /// Linear strategy: 1D readers only, on one row every
+    /// [`row_step`](preprocess::linear::row_step) rows of the enhanced image
+    /// (the blur made the others redundant), enhancing only those rows.
+    /// Points are returned in the coordinates of `img`.
+    fn decode_linear(
+        &self,
+        img: &GrayImage,
+        scale: LinearScale,
+    ) -> Result<Vec<ScanResult>, ScanError> {
+        let step = preprocess::linear::row_step(img.height());
+        let rows = preprocess::linear::linear_enhance_rows(img, scale, step);
         let mut results = self.decoder.decode_rows(&rows)?;
         for p in results.iter_mut().flat_map(|r| r.points.iter_mut()) {
             p.y *= step as f32;
