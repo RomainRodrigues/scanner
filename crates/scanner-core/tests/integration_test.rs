@@ -245,7 +245,7 @@ fn every_pixel_format_is_accepted() {
         PixelFormat::Nv21,
         PixelFormat::Yuy2,
     ] {
-        let data = vec![200u8; format.buffer_size(w, h)];
+        let data = vec![200u8; format.buffer_size(w, h).expect("small frame")];
         assert!(
             matches!(
                 scanner.scan_frame(&data, w, h, format),
