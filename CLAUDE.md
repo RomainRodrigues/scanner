@@ -80,6 +80,8 @@ Une **seule version** pour tout le projet, jamais modifiée à la main :
    `CHANGELOG.md`, puis les deux lockfiles.
 2. Fusionner cette PR → tag `vX.Y.Z`, release GitHub et **publication npm** du SDK
    (avec provenance si le dépôt est public : npm la refuse pour un dépôt privé).
+   Avant de fusionner, vérifier le job `release-pr-ci` du workflow *Release* : c'est la
+   seule CI de la PR de release (voir le tableau ci-dessous).
 
 **Fusion d'une PR : toujours un *merge commit* dont le message n'est pas un commit
 conventionnel** (ex. titre `Merge pull request #N …`, corps `PR #N`). GitHub met par
@@ -132,6 +134,9 @@ version courante (utilisé pour la première publication).
 | Démo sur le domaine `scanner.romrd.fr` (racine, donc pas de `NUXT_APP_BASE_URL`). Le domaine se règle dans *Settings → Pages* ; le fichier `CNAME` est ignoré pour un déploiement Actions mais gardé par sécurité | `.github/workflows/pages.yml`, `apps/demo-nuxt/public/CNAME` |
 | `allow-unwrap-in-tests` de clippy ne couvre pas `#[wasm_bindgen_test]` | `crates/scanner-wasm/tests/web.rs` |
 | release-please met à jour `Cargo.toml` et `package.json` mais pas les lockfiles (qui recopient la version) → job dédié sur la PR de release | `.github/workflows/release.yml` (`sync-lockfiles`) |
+| Publication en deux jobs : `package` (sans privilège : `npm ci`, build, `npm pack`) puis `publish` (seul à avoir `id-token: write`, n'installe et n'exécute **rien** venant de npm, publie le `.tgz`). Une dépendance de build compromise ne peut donc pas publier. Permissions définies job par job | `.github/workflows/release.yml` |
+| Actions GitHub épinglées par **SHA de commit** (le tag en commentaire) et mises à jour par Dependabot (préfixes `ci` / `build` : pas de release déclenchée) ; `npm` épinglé dans le job de publication | `.github/workflows/*.yml`, `.github/dependabot.yml` |
+| Les commits poussés avec `GITHUB_TOKEN` (PR de release) ne déclenchent aucun workflow → la CI est appelée par le workflow *Release* (`release-pr-ci`, `workflow_call`) sur la branche de release ; groupe de concurrence basé sur `inputs.ref` pour ne pas annuler la CI de `main` | `.github/workflows/release.yml`, `.github/workflows/ci.yml` |
 | Publication npm par OIDC (trusted publishing) : npm ≥ 11.5.1 requis, Node 22 n'embarque que npm 10 | `.github/workflows/release.yml` |
 | release-please réécrit `.release-please-manifest.json` en JSON compact à chaque release → exclu de Prettier (sinon `npm run lint` casse sur `main` après chaque release) | `.prettierignore` |
 | npm refuse la provenance pour un dépôt **privé** (E422 « Unsupported … repository visibility ») → `--no-provenance` tant que le dépôt est privé, `--provenance` sinon ; le trusted publishing fonctionne dans les deux cas | `.github/workflows/release.yml` |
