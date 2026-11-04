@@ -203,7 +203,7 @@ onUnmounted(() => reader?.destroy());    // libère caméra, worker et mémoire 
 
 ## ⚠️ Changements cassants depuis la 0.3
 
-- Paquet client : `@gueshbzh-perso/scanner` (le paquet `scanner-wasm` reste l'API bas niveau).
+- Paquet client : `@gueshbzh-perso/scanner`, qui remplace `@gueshbzh-perso/scanner-wasm` (retiré de npm). L'API bas niveau du moteur reste accessible via `createEngine()` et les fichiers `wasm/` du SDK.
 - `ScanResult.format` est maintenant `"qr_code"`, `"ean_13"`… ; `points` est un tableau de `{ x, y }`.
 - `confidence` et `orientation` ont disparu ; `timestamp_ms` devient `timestampMs`.
 - Statistiques de session : un seul getter `stats` au lieu de plusieurs getters.
