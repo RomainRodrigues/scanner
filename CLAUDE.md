@@ -8,7 +8,7 @@ Guide pour travailler sur ce dépôt (humains comme agents IA).
 développement actuelles.** Concrètement, chaque changement :
 
 - passe **tous** les contrôles sans warning : `cargo fmt`, `cargo clippy -D warnings`
-  (lints du workspace dans `Cargo.toml`), `cargo test`, `npm run lint`, `npm run typecheck`,
+  (lints du workspace dans `Cargo.toml`), `cargo test`, `cargo doc` (`-D warnings`), `npm run lint`, `npm run typecheck`,
   les tests WASM et e2e (voir [Commandes](#commandes)) ;
 - est **testé** : un bug corrigé = un test qui échoue sans le correctif. Pas de test qui
   « saute » silencieusement : une fixture manquante est un échec ;
@@ -59,6 +59,7 @@ npm run test:e2e                # Chromium headless + fausse caméra (ffmpeg, Pl
 
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --release
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace   # liens de doc (comme la CI)
 CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
   cargo test -p scanner-wasm --target wasm32-unknown-unknown --test web
 ```
