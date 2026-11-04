@@ -1,4 +1,4 @@
-# 📖 Guide du projet Scanner (v0.4)
+# 📖 Guide du projet Scanner
 
 Ce document explique l'architecture, les choix techniques face à STRICH, comment
 utiliser le SDK et comment tout tester en local.
@@ -56,7 +56,24 @@ les traitements coûteux dans le temps. C'est ce qui manquait à l'ancienne vers
 | `confidence` / `orientation` toujours à 1.0 / 0.0 | Supprimés (ils trompaient l'utilisateur) |
 | Toutes les features par défaut de rxing (encodeurs, 15 codecs image, `chrono-tz`…) | Uniquement les décodeurs nécessaires |
 | Pas de gestion caméra / UI : à recoder par chaque client | `BarcodeReader` : caméra arrière, mémoire de la caméra choisie, lampe torche, zoom, autofocus continu, changement de caméra, masque ROI, surlignage des codes, bip + vibration |
-| Un seul binaire WASM | Deux binaires (standard + **SIMD**), choix automatique |
+| Un seul binaire WASM | Deux binaires (standard + SIMD) en 0.4 ; **revenu à un seul en 0.7** : le SIMD automatique n'apportait aucun gain mesurable |
+
+### Depuis la 0.5 : téléphones lents et multi-cœur
+
+Mesuré sur un Galaxy A14 (décodage ~125 ms + grab ~55 ms par frame, ~6 fps), mais
+les solutions sont générales (mesures, pas de liste d'appareils) :
+
+| Problème | Solution |
+| --- | --- |
+| Chaque stratégie de secours avait une frame sur 7, quel que soit son coût | **Partage du temps CPU** : la stratégie qui a le moins consommé passe en premier (`realtime/scheduler.rs`) |
+| `Linear` (gravure laser) analysait toutes les lignes, en 2D et tournées à 90° | Une ligne sur trois, lecteurs 1D seuls, sans rotation ; seuillage limité à ces lignes |
+| Grab puis décodage l'un après l'autre | Les deux étapes **se chevauchent** |
+| Un seul cœur utilisé pour décoder | **Pool de Web Workers** (cœurs − 1, max 3) ; l'état (confirmations, anti-doublons) reste en un seul exemplaire sur le thread principal (`plan` / `commit`) |
+| Relecture GPU lente sur certains appareils | Backend `auto` : Canvas 2D gardé seulement s'il est **mesuré** nettement plus rapide |
+| CLAHE / Sauvola lents | Mêmes résultats, 1,5× à 3× plus rapides |
+
+Débit du moteur (benchmark e2e, frames texturées, 4 cœurs) : ~10 fps avec 1 worker →
+~30-36 fps avec 3 workers.
 
 ### Mesures
 
@@ -69,6 +86,8 @@ les traitements coûteux dans le temps. C'est ce qui manquait à l'ancienne vers
 
 ### Ce qui reste pour vraiment jouer dans la même cour que STRICH
 
+0. **Mesurer sur de vrais téléphones** chaque changement de performance (les chiffres
+   ci-dessus viennent d'un PC et de Chromium headless).
 1. **Localisation sur GPU** : détecter les zones « qui ressemblent à un code-barres »
    (densité de gradients) dans le shader, puis ne décoder que ces zones. C'est le plus
    gros gain restant, surtout pour les petits codes loin de la caméra.
@@ -77,8 +96,9 @@ les traitements coûteux dans le temps. C'est ce qui manquait à l'ancienne vers
 3. **Benchmark sur un vrai jeu d'images** (photos de codes réels, flous, reflets) pour
    comparer objectivement avec STRICH / ZXing / le `BarcodeDetector` natif.
 4. Un `PopupScanner` (scan en un appel dans une `<dialog>`), et des wrappers React / Vue.
-5. Taille du WASM (~1 Mo, ~450 Ko gzip) : retirer les formats inutilisés via des
+5. Taille du WASM (~1 Mo, ~470 Ko gzip) : retirer les formats inutilisés via des
    features Cargo par build.
+6. Du SIMD **écrit à la main** dans les boucles chaudes (prétraitements), mesuré.
 
 ---
 
@@ -94,7 +114,7 @@ le SDK et la démo.
 
 ```bash
 npm install          # une fois, à la racine
-npm run build        # Rust → WASM (standard + SIMD) + TypeScript (à relancer après modif du Rust ou du SDK)
+npm run build        # Rust → WASM + TypeScript (à relancer après modif du Rust ou du SDK)
 npm run dev          # démo sur l'ordinateur : http://localhost:3000
 npm run tunnel       # démo sur le téléphone : nuxt dev --tunnel (URL https + QR code)
 ```
@@ -115,9 +135,12 @@ Le composant `apps/demo-nuxt/app/components/BarcodeScanner.vue` est un wrapper r
 
 ```bash
 npm run lint && npm run typecheck          # ESLint + Prettier, tsc + vue-tsc
+npm test                                   # tests unitaires du SDK (node:test, après le build)
 npm run test:e2e                           # Chromium headless + fausse caméra (ffmpeg + Playwright)
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --release
+cargo audit --deny warnings                # vulnérabilités / crates non maintenues
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace
 CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
   cargo test -p scanner-wasm --target wasm32-unknown-unknown --test web
 ```
@@ -130,8 +153,12 @@ un jeu de **vraies photos** (reflets, codes abîmés, angles) pour un benchmark 
 ### GitHub Actions
 
 - **CI** (`.github/workflows/ci.yml`, à chaque push sur `main` et chaque pull request) :
-  fmt / clippy / tests / doc Rust, tests WASM dans Node.js, ESLint + Prettier, build du
-  SDK, vérification des types, tests e2e avec fausse caméra, build de la démo.
+  fmt / clippy / tests / doc / `cargo audit` Rust, tests WASM dans Node.js, ESLint +
+  Prettier, build du SDK, vérification des types, tests unitaires, tests e2e avec fausse
+  caméra, build de la démo. Aussi appelée par le workflow *Release* sur la PR de release.
+- **Sécurité** : actions épinglées par SHA de commit (Dependabot les met à jour),
+  permissions accordées job par job, et le job qui publie sur npm n'installe ni
+  n'exécute rien venant de npm (il publie l'archive construite par un autre job).
 - **Pages** (`.github/workflows/pages.yml`, à chaque push sur `main`) : génère la démo
   Nuxt et la publie sur **https://scanner.romrd.fr**.
 
@@ -160,23 +187,16 @@ commit (Conventional Commits) :
    `feat:` → minor ; avant la 1.0, un changement cassant `feat!:` passe aussi en minor),
    met à jour `Cargo.toml`, `packages/scanner-web/package.json`, `CHANGELOG.md` et les
    lockfiles.
-2. Tu relis la PR, tu la fusionnes quand tu veux publier → tag `v0.5.0`, release GitHub, et
-   publication du SDK sur npm (avec provenance si le dépôt est public : npm la refuse
-   pour un dépôt privé).
+2. Tu relis la PR et le job `release-pr-ci` du workflow *Release* (sa seule CI), puis tu la
+   fusionnes quand tu veux publier → tag `v0.5.0`, release GitHub, et publication du SDK
+   sur npm (avec provenance si le dépôt est public : npm la refuse pour un dépôt privé).
 
-**À configurer une fois :**
-
-- Première publication (le paquet `@gueshbzh-perso/scanner` n'existe pas encore sur npm) :
-  créer un token npm *Automation* (npmjs.com → Access Tokens), l'ajouter en secret
-  `NPM_TOKEN` (GitHub → Settings → Secrets and variables → Actions), puis lancer à la main
-  le workflow *Release* (onglet Actions → Release → Run workflow) : il publie la 0.4.0 et
-  crée la release `v0.4.0`.
-- Ensuite, recommandé : activer le **trusted publishing** sur npmjs.com (paquet → Settings →
-  Trusted Publisher → GitHub Actions, dépôt `RomainRodrigues/scanner`, workflow
-  `release.yml`, environnement `npm`) et supprimer le secret `NPM_TOKEN` : plus aucun
-  token à faire tourner.
-- Autoriser GitHub Actions à créer des PR : Settings → Actions → General → *Allow GitHub
-  Actions to create and approve pull requests*.
+**Configuration en place :** publication par **trusted publishing** (npmjs.com → paquet →
+Settings → Trusted Publisher : dépôt `RomainRodrigues/scanner`, workflow `release.yml`,
+environnement `npm`). Aucun token npm n'est utilisé : si un secret `NPM_TOKEN` existe
+encore dans GitHub (Settings → Secrets and variables → Actions), le supprimer. GitHub
+Actions doit pouvoir créer des PR (Settings → Actions → General → *Allow GitHub Actions
+to create and approve pull requests*).
 
 Publication manuelle de secours : `npm run build && npm publish -w @gueshbzh-perso/scanner --access public`.
 
