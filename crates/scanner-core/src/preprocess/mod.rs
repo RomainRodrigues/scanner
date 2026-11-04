@@ -21,7 +21,7 @@ pub use binarize::sauvola_binarize;
 pub use contrast::clahe;
 pub use linear::{linear_enhance, LinearScale};
 pub use roi::crop_roi;
-pub use sharpen::unsharp_mask;
+pub use sharpen::{gaussian_blur, unsharp_mask};
 
 /// Apply the full preprocessing pipeline to a grayscale image.
 ///

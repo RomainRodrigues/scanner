@@ -36,7 +36,7 @@ fn frame(format: RxFormat, content: &str, px: u32) -> GrayImage {
             }
         }
     }
-    imageproc::filter::gaussian_blur_f32(&img, 0.8)
+    scanner_core::preprocess::gaussian_blur(&img, 0.8)
 }
 
 fn noisy(img: &GrayImage, seed: &mut u64) -> GrayImage {
@@ -130,7 +130,7 @@ fn textures() -> Vec<GrayImage> {
                 }
             }
             if kind == 0 {
-                imageproc::filter::gaussian_blur_f32(&img, 1.5)
+                scanner_core::preprocess::gaussian_blur(&img, 1.5)
             } else {
                 img
             }

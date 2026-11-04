@@ -60,6 +60,7 @@ npm test                        # tests unitaires du SDK (node:test, sur dist/ :
 npm run test:e2e                # Chromium headless + fausse caméra (ffmpeg, Playwright)
 
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings
+cargo audit --deny warnings      # vulnérabilités / crates non maintenues (comme la CI)
 cargo test --workspace --release
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace   # liens de doc (comme la CI)
 CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \

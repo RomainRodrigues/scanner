@@ -34,6 +34,11 @@ jobs:
         with:
           node: 'false'
       - run: cargo fmt --all -- --check
+      # Known vulnerabilities and unmaintained crates (RustSec advisory database).
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit --deny warnings
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo clippy -p scanner-wasm --target wasm32-unknown-unknown --all-targets -- -D warnings
       - run: cargo test --workspace --release
