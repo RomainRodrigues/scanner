@@ -6,3 +6,6 @@ target/
 packages/scanner-web/src/wasm/
 package-lock.json
 *.md
+# Written by release-please on every release (compact JSON): formatting it would
+# be undone by the next release and break `npm run lint` on main.
+.release-please-manifest.json
