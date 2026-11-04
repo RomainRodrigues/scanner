@@ -44,8 +44,9 @@ tests/fixtures/          Images de test versionnées (+ generate.py pour les ré
 ```
 
 Flux temps réel : caméra → `<video>` → WebGL2 (ROI, luma, réduction, 4 px/texel,
-relecture asynchrone) → Web Worker → mémoire WASM → `ScanSession` (passe rapide +
-1 stratégie de secours par frame, partage du temps CPU, vérification 1D, confirmations, dé-duplication).
+relecture asynchrone) → pool de Web Workers en parallèle (`FrameDecoder` : passe rapide +
+1 stratégie de secours, vérification 1D) ⇄ `ScanSession` sur le thread principal
+(`plan` : choix de la stratégie, partage du temps CPU ; `commit` : confirmations, dé-duplication).
 
 ## Commandes
 
@@ -109,6 +110,13 @@ version courante (utilisé pour la première publication).
 | Rotation des stratégies : une seule stratégie coûteuse par frame (×6,6 sur les frames vides) | `realtime/session.rs` |
 | Les stratégies de secours se partagent le **temps CPU**, pas les frames : sur une scène texturée `Hard` coûte ~6× `Linear` ; à une frame chacune, un téléphone lent (Galaxy A14, ~5 fps) ne relançait `Linear` que toutes les ~1,5 s. Premier cycle dans l'ordre de la liste ; aucune stratégie n'attend plus de 3 cycles (anti-famine) | `realtime/session.rs` (`FallbackScheduler`) |
 | `Linear` décode **une ligne sur `row_step`** (le flou vertical rend les autres redondantes), avec les lecteurs 1D seuls et **sans** le réessai à 90° de rxing : ce réessai n'a lieu que si la source de luminance sait tourner, d'où `PlanarYUVLuminanceSource` (pas de rotation) au lieu de `Luma8LuminanceSource`. 69 → 19 ms sur une frame texturée | `decode/rxing_backend.rs` (`decode_rows`), `scanner.rs` (`decode_linear`) |
+| Décodage **multi-workers** : l'état (ordonnanceur, confirmations, anti-doublons) doit exister en **un seul exemplaire**, sinon les confirmations 1D et la dé-duplication cassent entre workers → `ScanSession` sur le thread principal (`plan` / `commit`, quelques µs), workers sans état (`FrameDecoder`). Session et décodeurs doivent avoir la **même configuration** (un plan = un indice dans la liste des stratégies) | `realtime/decoder.rs`, `src/engine.ts` |
+| Tout plan doit revenir à `commit`, même si le worker échoue (rapport vide) : sinon l'ordonnanceur le compte « en vol » pour toujours | `src/engine.ts` (`processFrame`) |
+| Plans en vol comptés avec leur coût estimé : sans ça, 3 frames planifiées en même temps auraient la même stratégie | `realtime/scheduler.rs` |
+| Rapports d'une configuration précédente (frames en vol pendant `configure`) ignorés via un numéro de génération | `src/engine.ts` (`generation`) |
+| Moteur compilé **une fois** sur le thread principal (`WebAssembly.Module` envoyé aux workers) : un seul téléchargement / compilation | `src/core.ts` (`compileWasm`), `src/engine.ts` |
+| 3 workers max par défaut (cœurs − 1) : au-delà le grab (~55 ms sur Galaxy A14, ~18 fps) limite et chaque worker coûte une instance WASM. Débit mesuré en e2e : ×3,25 avec 3 workers (4 cœurs) | `src/engine.ts` (`defaultWorkerCount`) |
+| Les décodages finissent dans le désordre : les surlignages ne sont mis à jour que par une frame plus récente que la dernière affichée | `src/reader.ts` (`seq`) |
 | Throttle adaptatif désactivé par le SDK (le worker gère déjà la contre-pression) | `packages/scanner-web/src/core.ts` |
 | Vue `frameBuffer()` invalidée à chaque croissance de la mémoire WASM : ne jamais la garder | `crates/scanner-wasm/src/lib.rs` |
 | Pipeline à deux étages **en parallèle** : le grab (GPU) de la frame N+1 pendant le décodage (worker) de la frame N, sinon le temps par frame est `grab + decode` (Galaxy A14 : ~55 + ~125 ms). Au plus un grab en cours et une frame en attente : on saute des frames au lieu de les empiler | `src/reader.ts` (`tick`) |

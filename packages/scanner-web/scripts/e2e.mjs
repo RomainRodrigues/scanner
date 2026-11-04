@@ -9,7 +9,7 @@
 // fed to Chromium as its webcam, then the real SDK is driven in the page.
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { cpus, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
@@ -149,7 +149,8 @@ for (const s of scenarios) {
     );
     const st = out.stats;
     const info =
-      `${st.backend}${st.worker ? '+worker' : ''}${st.simd ? '+simd' : ''} ${st.frameWidth}×${st.frameHeight}, ` +
+      `${st.backend}${st.worker ? `+${st.workers} workers` : ''}${st.simd ? '+simd' : ''} ` +
+      `${st.frameWidth}×${st.frameHeight}, ` +
       `first read ${out.elapsed.toFixed(0)} ms, ${st.fps.toFixed(1)} fps, decode ${st.decodeMs.toFixed(1)} ms, ` +
       `grab ${st.grabMs.toFixed(1)} ms`;
     if (ok && centered) {
@@ -185,6 +186,54 @@ for (const s of scenarios) {
     } else {
       failures++;
       console.log(`✗ scanImage multiple: got ${JSON.stringify(texts)}`);
+    }
+  } finally {
+    await browser.close();
+  }
+}
+
+// Engine throughput: textured frames without a code (the common, most
+// expensive case) sent straight to the engine, `workers` frames in flight.
+// Decoding is CPU-bound, so the pool should scale with the available cores.
+{
+  const browser = await chromium.launch({ executablePath });
+  try {
+    const page = await browser.newPage();
+    await page.goto(`${base}/test/e2e.html`);
+    const runs = await page.evaluate(async () => {
+      const { createEngine } = await import('/dist/index.js');
+      const [w, h, frames] = [1024, 432, 36];
+      const texture = new Uint8Array(w * h);
+      for (let i = 0; i < texture.length; i++)
+        texture[i] = 80 + ((i * 7919 + Math.floor(i / w) * 104729) % 97);
+      const out = [];
+      for (const workers of [1, 3]) {
+        const engine = await createEngine({ workers });
+        await engine.configure({});
+        let sent = 0;
+        const t0 = performance.now();
+        const lane = async () => {
+          while (sent < frames) {
+            sent++;
+            await engine.processFrame(texture.slice().buffer, w, h, 'luma');
+          }
+        };
+        await Promise.all(Array.from({ length: engine.concurrency }, lane));
+        out.push({ workers: engine.concurrency, fps: (frames * 1000) / (performance.now() - t0) });
+        engine.destroy();
+      }
+      return out;
+    });
+    const [one, three] = runs;
+    const ok = one.workers === 1 && three.workers === 3;
+    const line =
+      `engine throughput (${cpus().length} cores): 1 worker ${one.fps.toFixed(1)} fps, ` +
+      `3 workers ${three.fps.toFixed(1)} fps (×${(three.fps / one.fps).toFixed(2)})`;
+    if (ok) {
+      console.log(`✓ ${line}`);
+    } else {
+      failures++;
+      console.log(`✗ ${line}: ${JSON.stringify(runs)}`);
     }
   } finally {
     await browser.close();

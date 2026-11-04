@@ -1,11 +1,21 @@
-// Messages exchanged between the SDK and its Web Worker.
+// Messages exchanged between the SDK and its decoding Web Workers.
+import type { FramePlan, FrameReport } from './core.js';
 import type { PixelFormat } from './wasm/scanner_wasm.js';
 import type { Detection, EngineOptions } from './types.js';
 
 export type WorkerRequest =
-  | { id: number; type: 'init'; wasmUrl: string }
+  /** `module` is compiled once on the main thread and shared by every worker. */
+  | { id: number; type: 'init'; module: WebAssembly.Module }
   | { id: number; type: 'configure'; options: EngineOptions }
-  | { id: number; type: 'frame'; buffer: ArrayBuffer; width: number; height: number; format: PixelFormat }
+  | {
+      id: number;
+      type: 'decode';
+      buffer: ArrayBuffer;
+      width: number;
+      height: number;
+      format: PixelFormat;
+      plan: FramePlan;
+    }
   | {
       id: number;
       type: 'scan';
@@ -14,18 +24,15 @@ export type WorkerRequest =
       height: number;
       format: PixelFormat;
       options: EngineOptions;
-    }
-  | { id: number; type: 'reset' }
-  | { id: number; type: 'clearCooldown'; text: string };
+    };
 
 export type WorkerResponse =
   | {
       id: number;
       ok: true;
       version?: string;
-      results?: Detection[] | null;
-      live?: Detection[];
-      decodeMs?: number;
+      report?: FrameReport;
+      results?: Detection[];
       buffer?: ArrayBuffer;
     }
   | { id: number; ok: false; error: string; fatal?: boolean; buffer?: ArrayBuffer };
