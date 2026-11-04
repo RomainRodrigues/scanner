@@ -64,6 +64,11 @@ class DecoderWorker {
   version = '';
   /** Requests sent and not answered yet. */
   busy = 0;
+
+  /** `false` once the worker failed for good (script error, crash outside a request). */
+  get alive(): boolean {
+    return this.dead === null;
+  }
   private worker!: Worker;
   private nextId = 1;
   private pending = new Map<number, { resolve: (r: WorkerResponse) => void; reject: (e: Error) => void }>();
@@ -230,13 +235,24 @@ class WorkerPoolEngine implements Engine {
     this.session.destroy();
   }
 
-  /** The worker with the fewest requests in progress. */
   private idleWorker(): DecoderWorker {
-    let best = this.workers[0];
-    if (!best) throw new Error('Engine destroyed');
-    for (const w of this.workers) if (w.busy < best.busy) best = w;
-    return best;
+    const worker = pickWorker(this.workers);
+    if (!worker) throw new Error('Scanner engine unavailable: every decoding worker failed');
+    return worker;
   }
+}
+
+/**
+ * The live worker with the fewest requests in progress. Dead workers are
+ * skipped: they reject instantly, so they always look the least busy and
+ * would otherwise receive most frames.
+ */
+export function pickWorker<W extends { alive: boolean; busy: number }>(workers: readonly W[]): W | undefined {
+  let best: W | undefined;
+  for (const w of workers) {
+    if (w.alive && (!best || w.busy < best.busy)) best = w;
+  }
+  return best;
 }
 
 function emptyReport(plan: FramePlan): FrameReport {

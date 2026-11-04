@@ -56,6 +56,7 @@ npm run build                   # Rust → WASM (standard + SIMD) + TypeScript
 npm run dev                     # démo sur http://localhost:3000
 npm run tunnel                  # démo + tunnel Cloudflare (QR code) pour le téléphone
 npm run lint && npm run typecheck
+npm test                        # tests unitaires du SDK (node:test, sur dist/ : après le build)
 npm run test:e2e                # Chromium headless + fausse caméra (ffmpeg, Playwright)
 
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings
@@ -122,6 +123,10 @@ version courante (utilisé pour la première publication).
 | Throttle adaptatif désactivé par le SDK (le worker gère déjà la contre-pression) | `packages/scanner-web/src/core.ts` |
 | Vue `frameBuffer()` invalidée à chaque croissance de la mémoire WASM : ne jamais la garder | `crates/scanner-wasm/src/lib.rs` |
 | Pipeline à deux étages **en parallèle** : le grab (GPU) de la frame N+1 pendant le décodage (worker) de la frame N, sinon le temps par frame est `grab + decode` (Galaxy A14 : ~55 + ~125 ms). Au plus un grab en cours et une frame en attente : on saute des frames au lieu de les empiler | `src/reader.ts` (`tick`) |
+| `start()` concurrents (double clic, mode strict React) : une seule promesse de démarrage partagée, sinon deux `getUserMedia` et un flux jamais libéré ; `stop()` pendant `start()` annule le démarrage (compteur `lifecycle`) et libère la caméra en cours d'ouverture. Scénario e2e « reader lifecycle » | `src/reader.ts` (`start`, `open`) |
+| Erreurs de frame : seule la **première** d'une série est émise (`failures`), sinon un moteur indisponible émettrait ~30 erreurs/s ; rien n'est émis après `stop()` / `destroy()` | `src/reader.ts` (`handleFrameError`) |
+| Un worker mort répond en erreur instantanément, donc paraît toujours le moins occupé : `pickWorker` l'exclut, sinon il recevrait la plupart des frames | `src/engine.ts` (`pickWorker`), `test/unit/engine.test.mjs` |
+| Taille de buffer calculée en `u64` vérifié : `width * height` en `u32` reboucle en release (65536² = 0) et laissait passer une frame absurde jusqu'à une panique | `frame.rs` (`buffer_size`) |
 | Trap WASM (panique Rust) = module dans un état indéfini → le worker est recréé | `src/worker.ts`, `src/engine.ts` |
 | Seules les erreurs du pipeline d'image (`GrabError`) déclenchent le repli WebGL → Canvas 2D | `src/reader.ts` |
 | Ligne 0 du framebuffer WebGL = haut de l'image (pas de flip) ; largeur de sortie multiple de 4 | `src/grabber.ts`, `src/geometry.ts` |

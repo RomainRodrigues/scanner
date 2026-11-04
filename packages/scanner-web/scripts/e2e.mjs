@@ -192,6 +192,59 @@ for (const s of scenarios) {
   }
 }
 
+// Reader lifecycle: concurrent start() calls must open the camera once, and a
+// stop() during start() must release the camera it was opening.
+{
+  const video = fakeCamera('lifecycle', join(images, 'qr/clean_hd.png'), 400, {});
+  const browser = await chromium.launch({
+    executablePath,
+    args: [
+      '--use-fake-ui-for-media-stream',
+      '--use-fake-device-for-media-stream',
+      `--use-file-for-fake-video-capture=${video}`,
+      '--enable-unsafe-swiftshader',
+    ],
+  });
+  try {
+    const page = await browser.newPage();
+    await page.goto(`${base}/test/e2e.html`);
+    const out = await page.evaluate(async () => {
+      const streams = [];
+      const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async (c) => {
+        const s = await gum(c);
+        streams.push(s);
+        return s;
+      };
+      const { BarcodeReader } = await import('/dist/index.js');
+      const host = document.createElement('div');
+      host.style.cssText = 'width:640px;height:360px';
+      document.body.prepend(host);
+      const reader = await BarcodeReader.create({ host, feedback: false });
+      await Promise.all([reader.start(), reader.start()]);
+      const opened = streams.length;
+      await reader.stop();
+      const start = reader.start();
+      await reader.stop();
+      await start;
+      const live = streams.flatMap((s) => s.getTracks()).filter((t) => t.readyState === 'live').length;
+      const running = reader.isRunning;
+      await reader.destroy();
+      return { opened, live, running };
+    });
+    const ok = out.opened === 1 && out.live === 0 && out.running === false;
+    const line = `reader lifecycle: ${JSON.stringify(out)}`;
+    if (ok) {
+      console.log(`✓ ${line}`);
+    } else {
+      failures++;
+      console.log(`✗ ${line} (expected one camera opened, none left live, not running)`);
+    }
+  } finally {
+    await browser.close();
+  }
+}
+
 // Engine throughput: textured frames without a code (the common, most
 // expensive case) sent straight to the engine, `workers` frames in flight.
 // Decoding is CPU-bound, so the pool should scale with the available cores.
