@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/romainrodrigues/scanner"
+    "url": "https://github.com/RomainRodrigues/scanner"
   },
   "keywords": [
     "barcode",
@@ -33,6 +33,8 @@
   },
   "files": [
     "dist",
+    "src",
+    "!src/wasm",
     "README.md"
   ],
   "sideEffects": false,

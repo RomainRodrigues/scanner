@@ -11,6 +11,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } f
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeThirdPartyLicenses } from './licenses.mjs';
 
 const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoDir = resolve(pkgDir, '../..');
@@ -145,3 +146,7 @@ for (const [src, dest, flags] of targets) {
 }
 
 rmSync(tmpDir, { recursive: true, force: true });
+
+// License notices of the Rust crates compiled into the engine (shipped with it).
+const notices = writeThirdPartyLicenses(repoDir, join(outDir, 'THIRD_PARTY_LICENSES.md'));
+console.log(`✓ src/wasm/THIRD_PARTY_LICENSES.md (${notices.crates} crates, ${notices.texts} license texts)`);
