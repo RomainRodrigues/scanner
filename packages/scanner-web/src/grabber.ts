@@ -233,9 +233,10 @@ export function createGrabber(backend: 'auto' | 'webgl' | 'canvas' = 'auto'): Fr
 
 /** BT.601 luma with integer arithmetic (same weights as the GPU path and the engine). */
 export function rgbaToLuma(rgba: Uint8ClampedArray | Uint8Array, out: Uint8Array): void {
-  const n = out.length;
+  const n = Math.min(out.length, rgba.length >> 2);
   for (let i = 0, j = 0; i < n; i++, j += 4) {
-    out[i] = (19595 * rgba[j] + 38470 * rgba[j + 1] + 7471 * rgba[j + 2]) >> 16;
+    // In bounds by construction (`n`): `?? 0` only satisfies the type checker.
+    out[i] = (19595 * (rgba[j] ?? 0) + 38470 * (rgba[j + 1] ?? 0) + 7471 * (rgba[j + 2] ?? 0)) >> 16;
   }
 }
 

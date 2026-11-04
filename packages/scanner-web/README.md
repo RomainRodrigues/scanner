@@ -97,6 +97,25 @@ export default { optimizeDeps: { exclude: ['@gueshbzh-perso/scanner'] } };
 If your setup cannot resolve the assets, copy `node_modules/@gueshbzh-perso/scanner/dist`
 to your public folder and pass `workerUrl` / `wasmUrl` explicitly.
 
+## Content Security Policy
+
+With a CSP, allow WebAssembly compilation and the SDK's module workers
+(served from your origin by your bundler):
+
+```
+script-src 'self' 'wasm-unsafe-eval';
+worker-src 'self';
+```
+
+The camera needs `camera` allowed by `Permissions-Policy` (allowed by default
+for the top-level page; add `allow="camera"` to an `<iframe>`).
+
+## Low-level engine
+
+`createEngine()` decodes frames you already have as pixels (custom pipelines,
+`VideoFrame`s…), with the same worker pool as the reader. It is an advanced API:
+the `Engine` interface may gain members in minor versions.
+
 ## How it works
 
 ```
@@ -144,4 +163,5 @@ automatically on first run; `wasm-opt` comes from the `binaryen` devDependency.
 
 ## License
 
-MIT
+MIT. The WebAssembly engine is compiled from Rust crates under permissive
+licenses: see `dist/wasm/THIRD_PARTY_LICENSES.md` in the package.

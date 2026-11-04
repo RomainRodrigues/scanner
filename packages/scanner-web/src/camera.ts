@@ -7,11 +7,14 @@ const RESOLUTIONS: Record<CameraResolution, [number, number]> = {
   fhd: [1920, 1080],
 };
 
-const STORAGE_KEY = 'scanner.cameraId';
+// Namespaced: the host page shares localStorage with the SDK.
+const STORAGE_KEY = '@gueshbzh-perso/scanner:cameraId';
+/** Key used up to 0.6: still read, so the remembered camera survives the upgrade. */
+const LEGACY_STORAGE_KEY = 'scanner.cameraId';
 
 export function rememberedCamera(): string | undefined {
   try {
-    return localStorage.getItem(STORAGE_KEY) ?? undefined;
+    return localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY) ?? undefined;
   } catch {
     return undefined;
   }

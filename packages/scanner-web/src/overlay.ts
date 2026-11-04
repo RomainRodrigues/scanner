@@ -142,12 +142,13 @@ export class Preview {
       ctx.lineWidth = 3;
       ctx.lineCap = 'round';
       ctx.beginPath();
-      for (const [x, y, dx, dy] of [
+      const corners: [number, number, number, number][] = [
         [rx, ry, 1, 1],
         [rx + rw, ry, -1, 1],
         [rx, ry + rh, 1, -1],
         [rx + rw, ry + rh, -1, -1],
-      ]) {
+      ];
+      for (const [x, y, dx, dy] of corners) {
         ctx.moveTo(x + dx * c, y);
         ctx.lineTo(x, y);
         ctx.lineTo(x, y + dy * c);
@@ -176,21 +177,21 @@ export class Preview {
 }
 
 function drawPolygon(ctx: CanvasRenderingContext2D, pts: Point[]): void {
-  if (pts.length === 0) return;
+  const [first, second] = pts;
+  if (!first) return;
   ctx.beginPath();
-  if (pts.length === 2) {
+  if (pts.length === 2 && second) {
     // 1D codes report the two ends of the scan line: draw a thick bar.
-    const [a, b] = pts;
     ctx.save();
     ctx.lineWidth = 10;
     ctx.globalAlpha *= 0.6;
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
+    ctx.moveTo(first.x, first.y);
+    ctx.lineTo(second.x, second.y);
     ctx.stroke();
     ctx.restore();
     return;
   }
-  ctx.moveTo(pts[0].x, pts[0].y);
+  ctx.moveTo(first.x, first.y);
   for (const p of pts.slice(1)) ctx.lineTo(p.x, p.y);
   ctx.closePath();
   ctx.fill();
@@ -198,9 +199,9 @@ function drawPolygon(ctx: CanvasRenderingContext2D, pts: Point[]): void {
 }
 
 function withAlpha(color: string, alpha: number): string {
-  const m = /^#([0-9a-f]{6})$/i.exec(color);
-  if (!m) return color;
-  const n = parseInt(m[1], 16);
+  const hex = /^#([0-9a-f]{6})$/i.exec(color)?.[1];
+  if (!hex) return color;
+  const n = parseInt(hex, 16);
   return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${alpha})`;
 }
 

@@ -308,7 +308,13 @@ class InlineEngine implements Engine {
   }
 }
 
-/** Load the engine: a pool of Web Workers when possible, else the main thread. */
+/**
+ * Load the engine: a pool of Web Workers when possible, else the main thread.
+ *
+ * Low-level API, for custom pipelines (frames you already have as pixels).
+ * Most applications should use `BarcodeReader` or `scanImage`. The `Engine`
+ * interface may gain members in minor versions.
+ */
 export async function createEngine(options: AssetOptions = {}): Promise<Engine> {
   const simd = simdSupported();
   const wasmUrl = new URL(String(options.wasmUrl ?? defaultWasmUrl(simd)), location.href).href;
