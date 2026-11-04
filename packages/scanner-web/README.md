@@ -1,7 +1,7 @@
 # @gueshbzh-perso/scanner
 
 Fast QR code & barcode scanning for the web. Rust/WebAssembly decoder, WebGL2
-frame pipeline, decoding in a Web Worker, camera management and a ready-made
+frame pipeline, parallel decoding in Web Workers, camera management and a ready-made
 overlay. No license key, no network calls: everything runs on the device.
 
 ⚠️ Work in progress: the API may still change before 1.0.
@@ -52,7 +52,8 @@ await reader.destroy();  // removes the preview, frees the engine
 | `overlay` | all on | `showRegion`, `showDetections`, `showTorchButton`, `showCameraSwitch`, `color`, or `false`. |
 | `feedback` | beep + vibrate | `{ beep, vibrate }` or `false`. |
 | `processing` | `{ maxDimension: 1024, backend: 'auto' }` | Decoder image size; `'webgl'`, `'canvas'` or `'auto'`. |
-| `worker` | `true` | Decode in a Web Worker; falls back to the main thread if unavailable. |
+| `worker` | `true` | Decode in Web Workers; falls back to the main thread if unavailable. |
+| `workers` | cores − 1 (1–3) | Number of decoding workers: frames are decoded in parallel. |
 | `wasmUrl`, `workerUrl` | auto | Override asset URLs (CDN, custom bundler setup). |
 
 ### Reader API
@@ -63,7 +64,7 @@ await reader.destroy();  // removes the preview, frees the engine
 - `setRegionOfInterest(region)`
 - `setTorch(on)`, `torchAvailable`, `setZoom(zoom)`, `switchCamera(deviceId?)`, `BarcodeReader.listCameras()`
 - `clearCooldown(text)` — allow a code to be reported again immediately
-- `stats` — `{ fps, decodeMs, grabMs, frameWidth, frameHeight, backend, worker, simd }`
+- `stats` — `{ fps, decodeMs, grabMs, frameWidth, frameHeight, backend, worker, workers, simd }`
 - `video` — the underlying `<video>` element
 
 Detection points are in video pixels (`video.videoWidth` space).
@@ -102,20 +103,24 @@ to your public folder and pass `workerUrl` / `wasmUrl` explicitly.
 camera ─▶ <video> ─▶ WebGL2: crop to ROI · RGB→luma · box-filter downscale · pack 4 px/texel
                          │  async readback (pixel-pack buffer + fence) — width×height bytes
                          ▼
-                Web Worker ─▶ WASM memory (no extra copy) ─▶ Rust engine
-                                                             │ fast pass every frame
-                                                             │ + 1 fallback per frame (CPU-time share)
-                                                             │   (try-harder, inverted, CLAHE, Sauvola)
-                                                             │ 1D quiet-zone check · multi-frame confirmation · de-dup
-                         ◀────────────── new codes + live detections
+   session (main thread) ─ plan ─▶ pool of Web Workers (parallel) ─▶ WASM memory ─▶ Rust decoder
+   strategy scheduling                                             │ fast pass every frame
+   multi-frame confirmation                                        │ + 1 fallback per frame (CPU-time share)
+   de-dup                                                          │   (try-harder, inverted, CLAHE, Sauvola, Linear)
+                         ◀────────── report (codes, timing) ───────┘ 1D quiet-zone check
+                 new codes + live detections
 overlay (ROI mask, highlights, torch / camera buttons) · beep · vibration
 ```
 
-- One frame in flight at a time: when the decoder is busy, frames are skipped
-  instead of queued, so latency never builds up.
+- The grab of the next frame overlaps the decoding of the previous ones, and
+  frames are decoded by several workers at once. When every worker is busy,
+  frames are skipped instead of queued, so latency never builds up.
+- The scan state lives in one place (main thread), so multi-frame
+  confirmation and de-duplication work across workers.
 - The SIMD build of the engine is picked automatically when the browser supports it.
 - If WebGL2 is missing or the context is lost, the pipeline switches to Canvas 2D.
 - If the engine crashes, the worker is restarted transparently.
+- The engine is downloaded and compiled once, then shared by every worker.
 
 ## Browser support
 

@@ -59,8 +59,14 @@ export interface AssetOptions {
   wasmUrl?: string | URL;
   /** URL of the SDK `worker.js`. Default: next to the SDK. */
   workerUrl?: string | URL;
-  /** Decode in a Web Worker (recommended). Default: `true`; falls back to the main thread if workers are unavailable. */
+  /** Decode in Web Workers (recommended). Default: `true`; falls back to the main thread if workers are unavailable. */
   worker?: boolean;
+  /**
+   * Number of decoding Web Workers: frames are decoded in parallel, which
+   * multiplies the frame rate on phones with several slow cores. Default:
+   * cores − 1, between 1 and 3.
+   */
+  workers?: number;
 }
 
 export type CameraResolution = 'sd' | 'hd' | 'fhd';
@@ -134,8 +140,10 @@ export interface ReaderStats {
   frameHeight: number;
   /** Active frame pipeline. */
   backend: 'webgl' | 'canvas';
-  /** `true` when decoding runs in a Web Worker. */
+  /** `true` when decoding runs in Web Workers. */
   worker: boolean;
+  /** Frames decoded in parallel (number of workers, `1` on the main thread). */
+  workers: number;
   /** `true` when the SIMD build of the engine is used. */
   simd: boolean;
 }

@@ -17,6 +17,18 @@ import type { Detection, EngineOptions, ReaderEvents, ReaderOptions, ReaderStats
 
 const DEFAULT_REGION: Region = { x: 0.1, y: 0.2, width: 0.8, height: 0.6 };
 
+/** A frame read from the video, waiting for (or being decoded by) the engine. */
+interface GrabbedFrame {
+  buffer: ArrayBuffer;
+  width: number;
+  height: number;
+  /** Region of the video the frame was cropped from (to map points back). */
+  rect: ReturnType<typeof regionToVideoRect>;
+  grabMs: number;
+  /** Grab order: decodes finish out of order when several workers run. */
+  seq: number;
+}
+
 type Listener<T> = (payload: T) => void;
 
 /**
@@ -43,7 +55,15 @@ export class BarcodeReader {
   private engineOptions: EngineOptions;
   private running = false;
   private paused = false;
-  private busy = false;
+  /** A grab (GPU readback) is in progress. */
+  private grabbing = false;
+  /** Frames being decoded (at most `engine.concurrency`). */
+  private decoding = 0;
+  /** Sequence number of the last grabbed frame, and of the last one drawn. */
+  private grabbed = 0;
+  private drawn = 0;
+  /** Grabbed frame waiting for the engine (at most one). */
+  private pending: GrabbedFrame | null = null;
   private destroyed = false;
   private torchOn = false;
   private buffers: ArrayBuffer[] = [];
@@ -101,6 +121,7 @@ export class BarcodeReader {
       frameHeight: this.perf.h,
       backend: this.grabber.kind,
       worker: this.engine.inWorker,
+      workers: this.engine.concurrency,
       simd: this.engine.simd,
     };
   }
@@ -234,26 +255,36 @@ export class BarcodeReader {
     cancelAnimationFrame(this.frameHandle);
   }
 
+  /**
+   * Frame pipeline, two stages that run **concurrently**: the grab (GPU crop +
+   * readback, main thread) of the next frame overlaps the decoding of the
+   * previous ones, which itself runs on `engine.concurrency` workers in
+   * parallel. Running grab and decode one after the other made the frame
+   * time `grab + decode`; overlapped it is `max(grab, decode / workers)`
+   * (Galaxy A14: grab ~55 ms, decode ~125 ms → ~180 ms per frame before).
+   *
+   * Back-pressure: at most one grab in flight and one frame waiting for a
+   * free worker. While a frame waits, no new grab starts, so frames are
+   * skipped, never queued, and the waiting frame is at most one decode old.
+   */
   private tick(): void {
     if (!this.running) return;
-    // One frame in flight at a time: natural back-pressure, no frame queue.
-    if (!this.busy && !this.paused && this.preview.video.videoWidth > 0) {
-      this.busy = true;
-      this.processFrame()
+    if (!this.grabbing && !this.pending && !this.paused && this.preview.video.videoWidth > 0) {
+      this.grabbing = true;
+      this.grabFrame()
+        .then((frame) => this.enqueue(frame))
         .catch((err) => this.handleFrameError(err))
-        .finally(() => (this.busy = false));
+        .finally(() => (this.grabbing = false));
     }
     this.preview.render();
     this.schedule();
   }
 
-  private async processFrame(): Promise<void> {
+  private async grabFrame(): Promise<GrabbedFrame> {
     const video = this.preview.video;
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-    const ew = this.preview.width || vw;
-    const eh = this.preview.height || vh;
-    const rect = regionToVideoRect(this.region, vw, vh, ew, eh);
+    const ew = this.preview.width || video.videoWidth;
+    const eh = this.preview.height || video.videoHeight;
+    const rect = regionToVideoRect(this.region, video.videoWidth, video.videoHeight, ew, eh);
     const { width, height } = outputSize(rect, this.options.processing?.maxDimension ?? 1024);
 
     const t0 = performance.now();
@@ -264,21 +295,53 @@ export class BarcodeReader {
       this.buffers.push(buffer);
       throw new GrabError(err);
     }
-    const t1 = performance.now();
+    return { buffer, width, height, rect, grabMs: performance.now() - t0, seq: ++this.grabbed };
+  }
 
-    const reply = await this.engine.processFrame(buffer, width, height, 'luma');
+  private enqueue(frame: GrabbedFrame): void {
+    if (!this.running || this.paused) {
+      this.buffers.push(frame.buffer);
+    } else if (this.decoding >= this.engine.concurrency) {
+      this.pending = frame;
+    } else {
+      this.decode(frame);
+    }
+  }
+
+  private decode(frame: GrabbedFrame): void {
+    this.decoding++;
+    this.decodeFrame(frame)
+      .catch((err) => this.handleFrameError(err))
+      .finally(() => {
+        this.decoding--;
+        const next = this.pending;
+        this.pending = null;
+        if (next) this.enqueue(next);
+      });
+  }
+
+  private async decodeFrame(frame: GrabbedFrame): Promise<void> {
+    const { width, height, rect } = frame;
+    const reply = await this.engine.processFrame(frame.buffer, width, height, 'luma');
     this.buffers.push(reply.buffer);
     if (!this.running) return;
 
-    this.updatePerf(t1 - t0, reply.decodeMs, width, height);
+    this.updatePerf(frame.grabMs, reply.decodeMs, width, height);
 
+    const video = this.preview.video;
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
     const toVideo = (d: Detection): Detection => ({
       ...d,
       points: decoderToVideo(d.points, rect, width, height),
     });
-    const live = reply.live.map(toVideo);
-    const layout = coverLayout(vw, vh, ew, eh);
-    this.preview.setDetections(live.map((d) => d.points.map((p) => videoToElement(p, layout))));
+    // An older frame finishing after a newer one must not move the highlights back.
+    if (frame.seq > this.drawn) {
+      this.drawn = frame.seq;
+      const live = reply.live.map(toVideo);
+      const layout = coverLayout(vw, vh, this.preview.width || vw, this.preview.height || vh);
+      this.preview.setDetections(live.map((d) => d.points.map((p) => videoToElement(p, layout))));
+    }
 
     if (reply.results && reply.results.length > 0) {
       this.feedback.play();

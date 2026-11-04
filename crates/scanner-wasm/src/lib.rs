@@ -21,12 +21,20 @@
 //! const view = session.frameBuffer(width * height);   // luma, 1 byte / px
 //! view.set(lumaPixels);
 //! const fresh = session.processFrameBuffer(width, height, "luma");
+//!
+//! // Parallel decoding: one session (state) + one decoder per worker
+//! const plan = session.plan();                         // main thread
+//! const decoder = new WasmFrameDecoder(config);        // in each worker
+//! decoder.frameBuffer(width * height).set(lumaPixels);
+//! const report = decoder.decodeFrameBuffer(width, height, "luma", plan);
+//! const fresh2 = session.commit(report);               // main thread
 //! ```
 
 use scanner_core::config::Roi as CoreRoi;
 use scanner_core::{
-    BarcodeFormat, PixelFormat, ScanError, ScanSession as CoreScanSession, Scanner as CoreScanner,
-    ScannerConfig,
+    BarcodeFormat, FrameDecoder as CoreFrameDecoder, FramePlan as CoreFramePlan,
+    FrameReport as CoreFrameReport, PixelFormat, ScanError, ScanSession as CoreScanSession,
+    Scanner as CoreScanner, ScannerConfig,
 };
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
@@ -72,8 +80,8 @@ export type PixelFormat = "rgba" | "rgb" | "luma";
 // ── JS-facing types ───────────────────────────────────────────────────────────
 
 /// A point in frame pixel coordinates.
-#[derive(Serialize, Tsify)]
-#[tsify(into_wasm_abi)]
+#[derive(Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 pub struct Point {
     /// Pixels from the left edge of the frame.
     pub x: f32,
@@ -82,8 +90,8 @@ pub struct Point {
 }
 
 /// A detected barcode.
-#[derive(Serialize, Tsify)]
-#[tsify(into_wasm_abi)]
+#[derive(Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanResult {
     /// Decoded text content.
@@ -96,7 +104,7 @@ pub struct ScanResult {
     /// Raw payload bytes, when available (binary QR codes…).
     #[serde(with = "serde_bytes")]
     #[tsify(type = "Uint8Array | undefined", optional)]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub raw_bytes: Option<Vec<u8>>,
     /// Unix timestamp (ms) of the detection.
     pub timestamp_ms: f64,
@@ -110,6 +118,92 @@ impl From<&scanner_core::ScanResult> for ScanResult {
             points: r.points.iter().map(|p| Point { x: p.x, y: p.y }).collect(),
             raw_bytes: r.raw_bytes.clone(),
             timestamp_ms: r.timestamp_ms as f64,
+        }
+    }
+}
+
+impl From<ScanResult> for scanner_core::ScanResult {
+    fn from(r: ScanResult) -> Self {
+        Self {
+            text: r.text,
+            format: r.format,
+            raw_bytes: r.raw_bytes,
+            points: r
+                .points
+                .into_iter()
+                .map(|p| scanner_core::Point { x: p.x, y: p.y })
+                .collect(),
+            // Timestamps are positive milliseconds, well within f64's exact range.
+            timestamp_ms: r.timestamp_ms.max(0.0) as u64,
+        }
+    }
+}
+
+/// What a frame must run, from `WasmScanSession.plan()`. Opaque: pass it
+/// unchanged to `WasmFrameDecoder.decodeFrameBuffer()`.
+#[derive(Serialize, Deserialize, Tsify, Clone, Copy)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+pub struct FramePlan {
+    /// Index of the fallback strategy to run when the fast path finds nothing.
+    #[tsify(optional)]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub fallback: Option<u32>,
+}
+
+impl From<CoreFramePlan> for FramePlan {
+    fn from(p: CoreFramePlan) -> Self {
+        Self {
+            fallback: p.fallback.and_then(|i| u32::try_from(i).ok()),
+        }
+    }
+}
+
+impl From<FramePlan> for CoreFramePlan {
+    fn from(p: FramePlan) -> Self {
+        Self {
+            fallback: p.fallback.map(|i| i as usize),
+        }
+    }
+}
+
+/// Outcome of `WasmFrameDecoder.decodeFrameBuffer()`, to pass to
+/// `WasmScanSession.commit()`.
+#[derive(Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct FrameReport {
+    /// The plan the frame was decoded with.
+    pub plan: FramePlan,
+    /// Codes read in the frame (duplicates included), in frame coordinates.
+    pub results: Vec<ScanResult>,
+    /// The planned fallback ran (the fast path found nothing).
+    pub fallback_ran: bool,
+    /// The fallback read the codes.
+    pub fallback_read: bool,
+    /// Decoding time of the frame, in ms.
+    pub elapsed_ms: f64,
+}
+
+impl From<CoreFrameReport> for FrameReport {
+    fn from(r: CoreFrameReport) -> Self {
+        Self {
+            plan: r.plan.into(),
+            results: r.results.iter().map(ScanResult::from).collect(),
+            fallback_ran: r.fallback_ran,
+            fallback_read: r.fallback_read,
+            elapsed_ms: r.elapsed_ms,
+        }
+    }
+}
+
+impl From<FrameReport> for CoreFrameReport {
+    fn from(r: FrameReport) -> Self {
+        Self {
+            plan: r.plan.into(),
+            results: r.results.into_iter().map(Into::into).collect(),
+            fallback_ran: r.fallback_ran,
+            fallback_read: r.fallback_read,
+            elapsed_ms: r.elapsed_ms,
         }
     }
 }
@@ -432,10 +526,73 @@ impl WasmScanSession {
         self.inner.clear_cooldown(text);
     }
 
+    /// Decide what the next frame runs, when frames are decoded elsewhere
+    /// (`WasmFrameDecoder` in Web Workers). Every plan must come back to
+    /// `commit`, in any order. The adaptive throttle does not apply.
+    pub fn plan(&mut self) -> FramePlan {
+        self.inner.plan().into()
+    }
+
+    /// Record a frame decoded by a `WasmFrameDecoder`. Returns the **new**
+    /// codes, or `null`, like `processFrameBuffer`.
+    #[wasm_bindgen(unchecked_return_type = "ScanResult[] | null")]
+    pub fn commit(&mut self, report: FrameReport) -> JsValue {
+        match self.inner.commit(report.into()) {
+            Some(results) => results_to_js(&results),
+            None => JsValue::NULL,
+        }
+    }
+
     fn process(&mut self, data: &[u8], width: u32, height: u32, format: PixelFormat) -> JsValue {
         match self.inner.process_frame(data, width, height, format) {
             Some(results) => results_to_js(&results),
             None => JsValue::NULL,
         }
+    }
+}
+
+// ── WasmFrameDecoder ──────────────────────────────────────────────────────────
+
+/// Stateless frame decoder for parallel decoding: one per Web Worker, all
+/// serving a single `WasmScanSession` (created with the same configuration)
+/// that plans the frames and commits the reports.
+#[wasm_bindgen]
+pub struct WasmFrameDecoder {
+    inner: CoreFrameDecoder,
+    buf: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl WasmFrameDecoder {
+    /// Create a decoder. Use the configuration of the session it serves.
+    #[wasm_bindgen(constructor)]
+    pub fn new(config: Option<WasmScanConfig>) -> WasmFrameDecoder {
+        WasmFrameDecoder {
+            inner: CoreFrameDecoder::new(js_config_to_core(config, ScannerConfig::default())),
+            buf: Vec::new(),
+        }
+    }
+
+    /// Get a view of the internal frame buffer resized to `len` bytes, then
+    /// call `decodeFrameBuffer`. **Do not keep the view** across calls.
+    #[wasm_bindgen(js_name = frameBuffer)]
+    pub fn frame_buffer(&mut self, len: usize) -> js_sys::Uint8Array {
+        buffer_view(&mut self.buf, len)
+    }
+
+    /// Decode the frame previously written into `frameBuffer`, following `plan`.
+    #[wasm_bindgen(js_name = decodeFrameBuffer)]
+    pub fn decode_frame_buffer(
+        &self,
+        width: u32,
+        height: u32,
+        #[wasm_bindgen(unchecked_param_type = "PixelFormat")] format: &str,
+        plan: FramePlan,
+    ) -> Result<FrameReport, JsError> {
+        let format = parse_pixel_format(format)?;
+        self.inner
+            .decode(&self.buf, width, height, format, plan.into())
+            .map(FrameReport::from)
+            .map_err(|e| JsError::new(&format!("Scanner error: {e}")))
     }
 }

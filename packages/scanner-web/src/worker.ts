@@ -1,5 +1,7 @@
-// Web Worker entry point: decodes frames off the main thread.
-import { EngineCore } from './core.js';
+// Web Worker entry point: decodes frames off the main thread. Stateless: the
+// scan session (scheduling, confirmations, de-duplication) lives on the main
+// thread, so any number of these workers can serve one camera stream.
+import { DecoderCore, loadWasm } from './core.js';
 import type { WorkerRequest, WorkerResponse } from './protocol.js';
 
 interface WorkerScope {
@@ -8,9 +10,9 @@ interface WorkerScope {
 }
 
 const scope = self as unknown as WorkerScope;
-let core: EngineCore | null = null;
+let core: DecoderCore | null = null;
 
-function engine(): EngineCore {
+function engine(): DecoderCore {
   if (!core) throw new Error('Engine not initialised');
   return core;
 }
@@ -20,39 +22,29 @@ scope.onmessage = async (ev) => {
   const buffer = 'buffer' in msg ? msg.buffer : undefined;
   try {
     switch (msg.type) {
-      case 'init':
-        core = await EngineCore.create(msg.wasmUrl);
-        scope.postMessage({ id: msg.id, ok: true, version: core.version });
+      case 'init': {
+        const version = await loadWasm(msg.module);
+        core = new DecoderCore();
+        scope.postMessage({ id: msg.id, ok: true, version });
         break;
+      }
       case 'configure':
         engine().configure(msg.options);
         scope.postMessage({ id: msg.id, ok: true });
         break;
-      case 'frame': {
-        const out = engine().process(new Uint8Array(msg.buffer), msg.width, msg.height, msg.format);
+      case 'decode': {
+        const pixels = new Uint8Array(msg.buffer);
+        const report = engine().decode(pixels, msg.width, msg.height, msg.format, msg.plan);
         // Hand the pixel buffer back so the main thread can reuse it.
-        scope.postMessage({ id: msg.id, ok: true, ...out, buffer: msg.buffer }, [msg.buffer]);
+        scope.postMessage({ id: msg.id, ok: true, report, buffer: msg.buffer }, [msg.buffer]);
         break;
       }
       case 'scan': {
-        const results = engine().scan(
-          new Uint8Array(msg.buffer),
-          msg.width,
-          msg.height,
-          msg.format,
-          msg.options,
-        );
+        const pixels = new Uint8Array(msg.buffer);
+        const results = engine().scan(pixels, msg.width, msg.height, msg.format, msg.options);
         scope.postMessage({ id: msg.id, ok: true, results, buffer: msg.buffer }, [msg.buffer]);
         break;
       }
-      case 'reset':
-        engine().reset();
-        scope.postMessage({ id: msg.id, ok: true });
-        break;
-      case 'clearCooldown':
-        engine().clearCooldown(msg.text);
-        scope.postMessage({ id: msg.id, ok: true });
-        break;
     }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
