@@ -34,17 +34,23 @@ impl PixelFormat {
         }
     }
 
-    /// Expected buffer size for the given dimensions.
-    pub fn buffer_size(&self, width: u32, height: u32) -> usize {
-        let pixels = (width * height) as usize;
-        match self {
-            PixelFormat::Rgba => pixels * 4,
-            PixelFormat::Rgb => pixels * 3,
+    /// Expected buffer size for the given dimensions, or `None` when it does
+    /// not fit in memory (`usize`).
+    ///
+    /// Computed in `u64` and checked: `width * height` in `u32` wraps around in
+    /// release builds (65536 × 65536 = 0), which used to let an absurd frame
+    /// pass the size check of [`Frame::new`] and panic later.
+    pub fn buffer_size(&self, width: u32, height: u32) -> Option<usize> {
+        let pixels = u64::from(width) * u64::from(height);
+        let bytes = match self {
+            PixelFormat::Rgba => pixels.checked_mul(4)?,
+            PixelFormat::Rgb => pixels.checked_mul(3)?,
             PixelFormat::Luma => pixels,
-            PixelFormat::Yuy2 => pixels * 2,
+            PixelFormat::Yuy2 => pixels.checked_mul(2)?,
             // NV21: Y plane (w*h) + UV plane (w*h/2)
             PixelFormat::Nv21 => pixels + pixels / 2,
-        }
+        };
+        usize::try_from(bytes).ok()
     }
 }
 
@@ -68,7 +74,11 @@ impl<'a> Frame<'a> {
         height: u32,
         format: PixelFormat,
     ) -> Result<Self, ScanError> {
-        let expected = format.buffer_size(width, height);
+        let Some(expected) = format.buffer_size(width, height) else {
+            return Err(ScanError::InvalidImage(format!(
+                "Frame too large: {width}x{height} {format:?}"
+            )));
+        };
         if data.len() < expected {
             return Err(ScanError::InvalidImage(format!(
                 "Buffer too small: expected {} bytes for {}x{} {:?}, got {}",
@@ -236,10 +246,21 @@ mod tests {
 
     #[test]
     fn test_pixel_format_buffer_size() {
-        assert_eq!(PixelFormat::Rgba.buffer_size(10, 10), 400);
-        assert_eq!(PixelFormat::Rgb.buffer_size(10, 10), 300);
-        assert_eq!(PixelFormat::Luma.buffer_size(10, 10), 100);
-        assert_eq!(PixelFormat::Yuy2.buffer_size(10, 10), 200);
-        assert_eq!(PixelFormat::Nv21.buffer_size(10, 10), 150);
+        assert_eq!(PixelFormat::Rgba.buffer_size(10, 10), Some(400));
+        assert_eq!(PixelFormat::Rgb.buffer_size(10, 10), Some(300));
+        assert_eq!(PixelFormat::Luma.buffer_size(10, 10), Some(100));
+        assert_eq!(PixelFormat::Yuy2.buffer_size(10, 10), Some(200));
+        assert_eq!(PixelFormat::Nv21.buffer_size(10, 10), Some(150));
+    }
+
+    /// Regression: 65536 × 65536 wrapped to 0 in `u32`, so a 1-byte buffer
+    /// passed the size check and the grayscale conversion panicked.
+    #[test]
+    fn huge_dimensions_are_rejected_not_wrapped() {
+        let data = [0u8; 16];
+        for format in [PixelFormat::Luma, PixelFormat::Rgba, PixelFormat::Nv21] {
+            assert!(Frame::new(&data, 65_536, 65_536, format).is_err());
+        }
+        assert!(Frame::new(&data, u32::MAX, u32::MAX, PixelFormat::Rgba).is_err());
     }
 }

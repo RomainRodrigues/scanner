@@ -65,6 +65,12 @@ export class BarcodeReader {
   /** Grabbed frame waiting for the engine (at most one). */
   private pending: GrabbedFrame | null = null;
   private destroyed = false;
+  /** Start in progress, shared by concurrent `start()` calls. */
+  private starting: Promise<void> | null = null;
+  /** Bumped by `stop()`: a start that sees another value was cancelled. */
+  private lifecycle = 0;
+  /** Consecutive failed frames: only the first error of a streak is reported. */
+  private failures = 0;
   private torchOn = false;
   private buffers: ArrayBuffer[] = [];
   private frameHandle = 0;
@@ -122,7 +128,6 @@ export class BarcodeReader {
       backend: this.grabber.kind,
       worker: this.engine.inWorker,
       workers: this.engine.concurrency,
-      simd: this.engine.simd,
     };
   }
 
@@ -131,39 +136,60 @@ export class BarcodeReader {
   }
 
   /** Open the camera and start scanning. Call it from a user gesture to allow the beep on iOS. */
-  async start(): Promise<void> {
+  start(): Promise<void> {
     this.assertAlive();
-    if (this.running) return;
+    if (this.running) return Promise.resolve();
+    // Concurrent calls (double tap, React strict mode…) share one start: a
+    // second getUserMedia would open a second stream that is never released.
+    this.starting ??= this.open().finally(() => (this.starting = null));
+    return this.starting;
+  }
+
+  private async open(): Promise<void> {
+    const lifecycle = this.lifecycle;
+    const cancelled = () => lifecycle !== this.lifecycle || this.destroyed;
+    // Synchronous, before the first await: must run inside the user gesture.
     this.feedback.unlock();
-    this.stream = await openCamera(this.options.camera);
+    const stream = await openCamera(this.options.camera);
+    if (cancelled()) {
+      // stop() or destroy() was called while the camera was opening.
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    this.stream = stream;
     const video = this.preview.video;
-    video.srcObject = this.stream;
+    video.srcObject = stream;
     await video.play().catch(() => undefined);
     await waitForVideo(video);
+    if (cancelled()) return; // stop() already released `this.stream`.
 
     const track = this.track();
     if (this.options.camera?.rememberDevice !== false) rememberCamera(track?.getSettings().deviceId);
     this.torchOn = false;
     await this.refreshButtons();
+    if (cancelled()) return;
 
     this.running = true;
     this.paused = false;
+    this.failures = 0;
     this.perf.since = performance.now();
     this.perf.frames = 0;
     this.emit('started', undefined);
     this.schedule();
   }
 
-  /** Stop scanning and release the camera. */
+  /** Stop scanning and release the camera. Also cancels a `start()` in progress. */
   async stop(): Promise<void> {
+    this.lifecycle++;
     if (!this.running && !this.stream) return;
+    const wasRunning = this.running;
     this.running = false;
     this.cancelSchedule();
     this.stream?.getTracks().forEach((t) => t.stop());
     this.stream = null;
     this.preview.video.srcObject = null;
     this.preview.setDetections([]);
-    this.emit('stopped', undefined);
+    if (wasRunning) this.emit('stopped', undefined);
   }
 
   /** Keep the camera running but stop decoding. */
@@ -325,6 +351,7 @@ export class BarcodeReader {
     const reply = await this.engine.processFrame(frame.buffer, width, height, 'luma');
     this.buffers.push(reply.buffer);
     if (!this.running) return;
+    this.failures = 0;
 
     this.updatePerf(frame.grabMs, reply.decodeMs, width, height);
 
@@ -350,6 +377,8 @@ export class BarcodeReader {
   }
 
   private handleFrameError(err: unknown): void {
+    // Frames still in flight when the reader was stopped or destroyed.
+    if (!this.running || this.destroyed) return;
     if (err instanceof GrabError && this.grabber.kind === 'webgl') {
       // GPU pipeline failed (context lost, driver issue…): continue on Canvas 2D.
       console.warn('[scanner] WebGL pipeline failed, falling back to Canvas 2D:', err.cause);
@@ -357,6 +386,9 @@ export class BarcodeReader {
       this.grabber = new CanvasGrabber();
       return;
     }
+    // A persistent failure (engine unavailable…) would otherwise emit one error
+    // per frame, ~30 per second: report the first one of each streak.
+    if (this.failures++ > 0) return;
     const error = err instanceof GrabError ? err.cause : err;
     this.emit('error', error instanceof Error ? error : new Error(String(error)));
   }

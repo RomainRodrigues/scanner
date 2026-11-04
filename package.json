@@ -17,7 +17,8 @@
     "lint": "eslint . && prettier --check .",
     "format": "eslint . --fix && prettier --write .",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test:e2e": "npm run test:e2e -w @gueshbzh-perso/scanner"
+    "test:e2e": "npm run test:e2e -w @gueshbzh-perso/scanner",
+    "test": "npm run test -w @gueshbzh-perso/scanner"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

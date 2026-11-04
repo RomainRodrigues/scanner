@@ -1,6 +1,11 @@
 #!/usr/bin/env node
-// Builds the Rust engine into two WebAssembly binaries (baseline + SIMD)
-// and generates the wasm-bindgen JS glue into src/wasm/.
+// Builds the Rust engine into a WebAssembly binary and generates the
+// wasm-bindgen JS glue into src/wasm/.
+//
+// A single baseline build: a second `+simd128` build used to ship too, but
+// auto-vectorisation brought no measurable gain on this branchy decoder
+// (Node 22, textured 1024×432 frames: 89 ms baseline vs 84-93 ms SIMD) for
+// twice the build time and package size.
 //
 // Requirements: Rust (rustup + cargo). The wasm32 target and the wasm-bindgen
 // CLI (pinned to the version in Cargo.lock) are installed automatically.
@@ -11,6 +16,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync } f
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeThirdPartyLicenses } from './licenses.mjs';
 
 const pkgDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoDir = resolve(pkgDir, '../..');
@@ -100,24 +106,16 @@ function build(variant, rustflags) {
 }
 
 rmSync(tmpDir, { recursive: true, force: true });
+// Start from an empty output: a file left by an older build must not ship.
+rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 
 const base = build('base', '');
-const simd = build('simd', '-C target-feature=+simd128');
-
-// Both builds export the exact same API, so a single JS glue serves both.
-const glue = (dir) => readFileSync(join(dir, 'scanner_wasm.js'), 'utf8');
-if (glue(base) !== glue(simd)) {
-  throw new Error('wasm-bindgen glue differs between baseline and SIMD builds');
-}
 
 for (const f of ['scanner_wasm.js', 'scanner_wasm.d.ts', 'scanner_wasm_bg.wasm.d.ts']) {
   copyFileSync(join(base, f), join(outDir, f));
 }
-const targets = [
-  [join(base, 'scanner_wasm_bg.wasm'), join(outDir, 'scanner_wasm_bg.wasm'), []],
-  [join(simd, 'scanner_wasm_bg.wasm'), join(outDir, 'scanner_wasm_simd_bg.wasm'), ['--enable-simd']],
-];
+const targets = [[join(base, 'scanner_wasm_bg.wasm'), join(outDir, 'scanner_wasm_bg.wasm'), []]];
 
 const wasmOpt = has('wasm-opt');
 if (wasmOpt) console.log(`\n▶ ${output('wasm-opt', ['--version'])?.trim()}`);
@@ -145,3 +143,7 @@ for (const [src, dest, flags] of targets) {
 }
 
 rmSync(tmpDir, { recursive: true, force: true });
+
+// License notices of the Rust crates compiled into the engine (shipped with it).
+const notices = writeThirdPartyLicenses(repoDir, join(outDir, 'THIRD_PARTY_LICENSES.md'));
+console.log(`✓ src/wasm/THIRD_PARTY_LICENSES.md (${notices.crates} crates, ${notices.texts} license texts)`);

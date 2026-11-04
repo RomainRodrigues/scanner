@@ -35,7 +35,7 @@ export default tseslint.config(
   },
   {
     // Node scripts (build, e2e, servers) may log freely.
-    files: ['**/scripts/**/*.mjs', '**/*.config.{js,ts}'],
+    files: ['**/scripts/**/*.mjs', '**/test/unit/**/*.mjs', '**/*.config.{js,ts}'],
     languageOptions: { globals: { ...globals.node } },
     rules: { 'no-console': 'off' },
   },

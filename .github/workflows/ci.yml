@@ -4,9 +4,19 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Called by the Release workflow on the release-please branch, whose commits
+  # (pushed with GITHUB_TOKEN) do not trigger this workflow by themselves.
+  workflow_call:
+    inputs:
+      ref:
+        description: Branch to test.
+        type: string
+        required: true
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # `inputs.ref` keeps a called run (release branch) out of the group of the
+  # push run on main that called it, which it would otherwise cancel.
+  group: ci-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -17,11 +27,18 @@ jobs:
     name: Rust — fmt, clippy, tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-toolchain
         with:
           node: 'false'
       - run: cargo fmt --all -- --check
+      # Known vulnerabilities and unmaintained crates (RustSec advisory database).
+      - uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit --deny warnings
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo clippy -p scanner-wasm --target wasm32-unknown-unknown --all-targets -- -D warnings
       - run: cargo test --workspace --release
@@ -37,11 +54,14 @@ jobs:
     name: SDK & demo — lint, build, e2e
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-toolchain
       - run: npm run lint
       - run: npm run build
       - run: npm run typecheck
+      - run: npm test
       - name: End-to-end (headless Chromium, fake camera)
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg

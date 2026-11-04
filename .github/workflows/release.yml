@@ -7,27 +7,33 @@ name: Release
 # 2. Merging that PR tags the release, creates the GitHub release and publishes
 #    the SDK to npm.
 # `workflow_dispatch` publishes the current version by hand (first release).
+#
+# Security model: every job gets only the permissions it needs. In particular
+# the job that can mint the npm publishing token (`id-token: write`) installs
+# and runs **nothing** from npm: the package is built and packed by an
+# unprivileged job, and the publish job only uploads that tarball. A compromised
+# build dependency therefore cannot publish to npm.
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
-  id-token: write # npm provenance / trusted publishing
+permissions: {}
 
 jobs:
   release-please:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       pr: ${{ steps.release.outputs.pr }}
     steps:
       - id: release
-        uses: googleapis/release-please-action@v4
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
@@ -38,12 +44,16 @@ jobs:
     needs: release-please
     if: needs.release-please.outputs.pr
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      branch: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
       - name: Update workspace versions in lockfiles
@@ -58,30 +68,75 @@ jobs:
           git commit -m "chore: sync lockfiles with the release version" -- Cargo.lock package-lock.json
           git push
 
-  publish:
+  # Commits pushed with GITHUB_TOKEN do not trigger workflows, so the release PR
+  # gets no CI of its own: run the CI here, on the release branch, after the
+  # lockfiles were synced. Check this run before merging the release PR.
+  release-pr-ci:
+    needs: sync-lockfiles
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.sync-lockfiles.outputs.branch }}
+
+  # Unprivileged: installs the npm dependencies and runs the build.
+  package:
     needs: release-please
     if: always() && (needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
-    environment: npm
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-toolchain
       - run: npm run build
-      - name: Check the package contents
-        run: npm pack --dry-run -w @gueshbzh-perso/scanner
+      - name: Pack the SDK
+        run: |
+          mkdir -p pkg
+          npm pack -w @gueshbzh-perso/scanner --pack-destination pkg
+          tar -tzf pkg/*.tgz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: npm-package
+          path: pkg/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  # Privileged (OIDC token for npm trusted publishing): no checkout, no
+  # `npm install`, no build script. Only the tarball built above is published.
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
       # Trusted publishing (OIDC) needs npm >= 11.5.1; Node 22 ships npm 10.
-      - run: npm install -g npm@latest
+      # Pinned: this job holds the publishing credential.
+      - run: npm install -g npm@11.21.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: npm-package
       - name: Publish to npm
         # npm only accepts provenance from public repositories ("Unsupported GitHub
         # Actions source repository visibility: private", E422 on the 0.5.0 release).
         # Trusted publishing itself works from a private repository, so provenance
         # is turned off explicitly while the repository is private.
-        run: npm publish -w @gueshbzh-perso/scanner --access public ${{ github.event.repository.private && '--no-provenance' || '--provenance' }}
-        env:
-          # Not needed once npm trusted publishing is configured for this workflow.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish ./*.tgz --access public ${{ github.event.repository.private && '--no-provenance' || '--provenance' }}
+
+  github-release:
+    needs: publish
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Create the GitHub release (manual runs only)
-        if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

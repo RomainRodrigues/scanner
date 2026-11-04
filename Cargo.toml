@@ -50,7 +50,6 @@ rxing = { version = "0.9", default-features = false, features = [
 
 # Image processing
 image = { version = "0.25", default-features = false }
-imageproc = { version = "0.25", default-features = false }
 
 # Error handling & utilities
 thiserror = "2"

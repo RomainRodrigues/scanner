@@ -52,13 +52,15 @@ relecture asynchrone) → pool de Web Workers en parallèle (`FrameDecoder` : pa
 
 ```bash
 npm install                     # une fois, à la racine (npm workspaces)
-npm run build                   # Rust → WASM (standard + SIMD) + TypeScript
+npm run build                   # Rust → WASM + TypeScript
 npm run dev                     # démo sur http://localhost:3000
 npm run tunnel                  # démo + tunnel Cloudflare (QR code) pour le téléphone
 npm run lint && npm run typecheck
+npm test                        # tests unitaires du SDK (node:test, sur dist/ : après le build)
 npm run test:e2e                # Chromium headless + fausse caméra (ffmpeg, Playwright)
 
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings
+cargo audit --deny warnings      # vulnérabilités / crates non maintenues (comme la CI)
 cargo test --workspace --release
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace   # liens de doc (comme la CI)
 CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
@@ -80,6 +82,8 @@ Une **seule version** pour tout le projet, jamais modifiée à la main :
    `CHANGELOG.md`, puis les deux lockfiles.
 2. Fusionner cette PR → tag `vX.Y.Z`, release GitHub et **publication npm** du SDK
    (avec provenance si le dépôt est public : npm la refuse pour un dépôt privé).
+   Avant de fusionner, vérifier le job `release-pr-ci` du workflow *Release* : c'est la
+   seule CI de la PR de release (voir le tableau ci-dessous).
 
 **Fusion d'une PR : toujours un *merge commit* dont le message n'est pas un commit
 conventionnel** (ex. titre `Merge pull request #N …`, corps `PR #N`). GitHub met par
@@ -110,6 +114,11 @@ version courante (utilisé pour la première publication).
 | Rotation des stratégies : une seule stratégie coûteuse par frame (×6,6 sur les frames vides) | `realtime/session.rs` |
 | Les stratégies de secours se partagent le **temps CPU**, pas les frames : sur une scène texturée `Hard` coûte ~6× `Linear` ; à une frame chacune, un téléphone lent (Galaxy A14, ~5 fps) ne relançait `Linear` que toutes les ~1,5 s. Premier cycle dans l'ordre de la liste ; aucune stratégie n'attend plus de 3 cycles (anti-famine) | `realtime/scheduler.rs` |
 | `Linear` décode **une ligne sur `row_step`** (le flou vertical rend les autres redondantes), avec les lecteurs 1D seuls et **sans** le réessai à 90° de rxing : ce réessai n'a lieu que si la source de luminance sait tourner, d'où `PlanarYUVLuminanceSource` (pas de rotation) au lieu de `Luma8LuminanceSource`. 69 → 19 ms sur une frame texturée | `decode/rxing_backend.rs` (`decode_rows`), `scanner.rs` (`decode_linear`) |
+| `Linear` ne seuille **que les lignes décodées** (`linear_enhance_rows`, identique à `sample_rows(linear_enhance(..))`, testé) ; l'image complète n'est calculée que si un code est lu, pour la vérification de zone de silence. Min/max glissants par **van Herk / Gil-Werman** (3 comparaisons par pixel, ~4× plus rapide que les deques) | `preprocess/linear.rs`, `scanner.rs` (`decode_linear`) |
+| CLAHE : tuiles de 8 px (≈ 6900 LUT pour 1024×432) ; le calcul des LUT dominait (14 ms sur 21) → une seule passe en `u32`, sortie identique à l'ancienne version (testé) | `preprocess/contrast.rs` |
+| Sauvola par **sommes glissantes** (mêmes entiers que les images intégrales, donc même sortie, testé) : plus de tables `u64` de ~7 Mo par appel | `preprocess/binarize.rs` |
+| Backend `auto` du grab : WebGL2, sauf si sa médiane dépasse 20 ms sur 15 frames ; Canvas 2D est alors mesuré et gardé seulement s'il est < 0,6 × WebGL (il bloque le thread principal). Décision unique, mesurée, sans liste d'appareils. Les scénarios e2e « webgl » forcent `backend: 'webgl'` (en headless le GPU est émulé et `auto` passerait en Canvas) | `src/grabber.ts` (`AdaptiveGrabber`), `test/unit/grabber.test.mjs` |
+| Les scripts de build **vident** `src/wasm` et `dist/wasm` avant d'écrire : un fichier d'un ancien build ne doit pas partir dans le paquet | `scripts/build-wasm.mjs`, `scripts/copy-wasm.mjs` |
 | Décodage **multi-workers** : l'état (ordonnanceur, confirmations, anti-doublons) doit exister en **un seul exemplaire**, sinon les confirmations 1D et la dé-duplication cassent entre workers → `ScanSession` sur le thread principal (`plan` / `commit`, quelques µs), workers sans état (`FrameDecoder`). Session et décodeurs doivent avoir la **même configuration** (un plan = un indice dans la liste des stratégies) | `realtime/decoder.rs`, `src/engine.ts` |
 | Tout plan doit revenir à `commit`, même si le worker échoue (rapport vide) : sinon l'ordonnanceur le compte « en vol » pour toujours | `src/engine.ts` (`processFrame`) |
 | Plans en vol comptés avec leur coût estimé : sans ça, 3 frames planifiées en même temps auraient la même stratégie | `realtime/scheduler.rs` |
@@ -120,11 +129,15 @@ version courante (utilisé pour la première publication).
 | Throttle adaptatif désactivé par le SDK (le worker gère déjà la contre-pression) | `packages/scanner-web/src/core.ts` |
 | Vue `frameBuffer()` invalidée à chaque croissance de la mémoire WASM : ne jamais la garder | `crates/scanner-wasm/src/lib.rs` |
 | Pipeline à deux étages **en parallèle** : le grab (GPU) de la frame N+1 pendant le décodage (worker) de la frame N, sinon le temps par frame est `grab + decode` (Galaxy A14 : ~55 + ~125 ms). Au plus un grab en cours et une frame en attente : on saute des frames au lieu de les empiler | `src/reader.ts` (`tick`) |
+| `start()` concurrents (double clic, mode strict React) : une seule promesse de démarrage partagée, sinon deux `getUserMedia` et un flux jamais libéré ; `stop()` pendant `start()` annule le démarrage (compteur `lifecycle`) et libère la caméra en cours d'ouverture. Scénario e2e « reader lifecycle » | `src/reader.ts` (`start`, `open`) |
+| Erreurs de frame : seule la **première** d'une série est émise (`failures`), sinon un moteur indisponible émettrait ~30 erreurs/s ; rien n'est émis après `stop()` / `destroy()` | `src/reader.ts` (`handleFrameError`) |
+| Un worker mort répond en erreur instantanément, donc paraît toujours le moins occupé : `pickWorker` l'exclut, sinon il recevrait la plupart des frames | `src/engine.ts` (`pickWorker`), `test/unit/engine.test.mjs` |
+| Taille de buffer calculée en `u64` vérifié : `width * height` en `u32` reboucle en release (65536² = 0) et laissait passer une frame absurde jusqu'à une panique | `frame.rs` (`buffer_size`) |
 | Trap WASM (panique Rust) = module dans un état indéfini → le worker est recréé | `src/worker.ts`, `src/engine.ts` |
 | Seules les erreurs du pipeline d'image (`GrabError`) déclenchent le repli WebGL → Canvas 2D | `src/reader.ts` |
 | Ligne 0 du framebuffer WebGL = haut de l'image (pas de flip) ; largeur de sortie multiple de 4 | `src/grabber.ts`, `src/geometry.ts` |
 | Les objets `URL` ne passent pas `postMessage` → on ne transmet que les options moteur | `src/core.ts` (`pickEngineOptions`) |
-| Glue JS identique pour les builds WASM standard et SIMD (vérifié au build) | `scripts/build-wasm.mjs` |
+| Un seul binaire WASM (pas de build `+simd128`) : l'auto-vectorisation n'apportait aucun gain mesurable sur ce décodeur (Node 22, frames texturées : 89 ms contre 84-93 ms) pour un build et un paquet deux fois plus gros. À reconsidérer seulement avec du SIMD écrit à la main dans les boucles chaudes, mesuré | `scripts/build-wasm.mjs` |
 | Son de détection : l'`AudioContext` doit être créé pendant un geste utilisateur (iOS) | `src/feedback.ts`, `src/reader.ts` |
 | Vite/Nuxt : `optimizeDeps.exclude` obligatoire, sinon les URL du worker et du `.wasm` cassent | `apps/demo-nuxt/nuxt.config.ts`, README du SDK |
 | Tunnel Cloudflare : hôte `*.trycloudflare.com` autorisé ; QR code seulement si stdout est un terminal | `apps/demo-nuxt/nuxt.config.ts`, README de la démo |
@@ -132,6 +145,9 @@ version courante (utilisé pour la première publication).
 | Démo sur le domaine `scanner.romrd.fr` (racine, donc pas de `NUXT_APP_BASE_URL`). Le domaine se règle dans *Settings → Pages* ; le fichier `CNAME` est ignoré pour un déploiement Actions mais gardé par sécurité | `.github/workflows/pages.yml`, `apps/demo-nuxt/public/CNAME` |
 | `allow-unwrap-in-tests` de clippy ne couvre pas `#[wasm_bindgen_test]` | `crates/scanner-wasm/tests/web.rs` |
 | release-please met à jour `Cargo.toml` et `package.json` mais pas les lockfiles (qui recopient la version) → job dédié sur la PR de release | `.github/workflows/release.yml` (`sync-lockfiles`) |
+| Publication en deux jobs : `package` (sans privilège : `npm ci`, build, `npm pack`) puis `publish` (seul à avoir `id-token: write`, n'installe et n'exécute **rien** venant de npm, publie le `.tgz`). Une dépendance de build compromise ne peut donc pas publier. Permissions définies job par job | `.github/workflows/release.yml` |
+| Actions GitHub épinglées par **SHA de commit** (le tag en commentaire) et mises à jour par Dependabot (préfixes `ci` / `build` : pas de release déclenchée) ; `npm` épinglé dans le job de publication | `.github/workflows/*.yml`, `.github/dependabot.yml` |
+| Les commits poussés avec `GITHUB_TOKEN` (PR de release) ne déclenchent aucun workflow → la CI est appelée par le workflow *Release* (`release-pr-ci`, `workflow_call`) sur la branche de release ; groupe de concurrence basé sur `inputs.ref` pour ne pas annuler la CI de `main` | `.github/workflows/release.yml`, `.github/workflows/ci.yml` |
 | Publication npm par OIDC (trusted publishing) : npm ≥ 11.5.1 requis, Node 22 n'embarque que npm 10 | `.github/workflows/release.yml` |
 | release-please réécrit `.release-please-manifest.json` en JSON compact à chaque release → exclu de Prettier (sinon `npm run lint` casse sur `main` après chaque release) | `.prettierignore` |
 | npm refuse la provenance pour un dépôt **privé** (E422 « Unsupported … repository visibility ») → `--no-provenance` tant que le dépôt est privé, `--provenance` sinon ; le trusted publishing fonctionne dans les deux cas | `.github/workflows/release.yml` |

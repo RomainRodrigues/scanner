@@ -12,25 +12,9 @@ import type { Detection, EngineOptions } from './types.js';
 
 export type { FramePlan, FrameReport };
 
-/** Feature-detects WebAssembly SIMD (same probe as `wasm-feature-detect`). */
-export function simdSupported(): boolean {
-  try {
-    return WebAssembly.validate(
-      new Uint8Array([
-        0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0, 253, 15, 253,
-        98, 11,
-      ]),
-    );
-  } catch {
-    return false;
-  }
-}
-
 /** Default location of the engine binary, next to this module. */
-export function defaultWasmUrl(simd = simdSupported()): URL {
-  return simd
-    ? new URL('./wasm/scanner_wasm_simd_bg.wasm', import.meta.url)
-    : new URL('./wasm/scanner_wasm_bg.wasm', import.meta.url);
+export function defaultWasmUrl(): URL {
+  return new URL('./wasm/scanner_wasm_bg.wasm', import.meta.url);
 }
 
 /**

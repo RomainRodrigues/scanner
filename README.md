@@ -47,7 +47,7 @@ Requirements: Rust (rustup) and Node.js 20+. Everything else (wasm32 target,
 
 ```bash
 npm install          # once, at the root (npm workspaces: SDK + demo)
-npm run build        # Rust → WASM (baseline + SIMD) + TypeScript
+npm run build        # Rust → WASM + TypeScript
 npm run dev          # demo on http://localhost:3000
 npm run tunnel       # demo + Cloudflare tunnel (https URL + QR code) for your phone
 

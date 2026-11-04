@@ -12,17 +12,25 @@ const emit = defineEmits<{
 const host = ref<HTMLElement | null>(null);
 const running = ref(false);
 let reader: BarcodeReader | null = null;
+let creating: Promise<BarcodeReader> | null = null;
 let statsTimer: ReturnType<typeof setInterval> | undefined;
 
-async function ensureReader(): Promise<BarcodeReader> {
-  if (reader) return reader;
+/** One reader per component, even if `start` is clicked twice while it loads. */
+function ensureReader(): Promise<BarcodeReader> {
+  if (reader) return Promise.resolve(reader);
+  creating ??= createReader().finally(() => (creating = null));
+  return creating;
+}
+
+async function createReader(): Promise<BarcodeReader> {
   if (!host.value) throw new Error('BarcodeScanner is not mounted');
   // Imported lazily: the SDK only runs in the browser.
   const { BarcodeReader } = await import('@gueshbzh-perso/scanner');
-  reader = await BarcodeReader.create({ host: host.value, formats: props.formats });
-  reader.on('detected', (codes) => emit('detected', codes));
-  reader.on('error', (err) => emit('error', err));
-  return reader;
+  const created = await BarcodeReader.create({ host: host.value, formats: props.formats });
+  created.on('detected', (codes) => emit('detected', codes));
+  created.on('error', (err) => emit('error', err));
+  reader = created;
+  return created;
 }
 
 /** Must be called from a user gesture (button click) for audio feedback on iOS. */
@@ -31,6 +39,7 @@ async function start() {
     const r = await ensureReader();
     await r.start();
     running.value = true;
+    clearInterval(statsTimer);
     statsTimer = setInterval(() => emit('stats', r.stats), 500);
   } catch (err) {
     emit('error', err instanceof Error ? err : new Error(String(err)));

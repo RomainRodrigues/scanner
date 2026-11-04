@@ -55,7 +55,7 @@ export interface EngineOptions {
 
 /** Where to load the engine from. Only needed when the bundler cannot resolve `import.meta.url`. */
 export interface AssetOptions {
-  /** URL of `scanner_wasm_bg.wasm` (or the SIMD variant). Default: auto, next to the SDK. */
+  /** URL of `scanner_wasm_bg.wasm`. Default: next to the SDK. */
   wasmUrl?: string | URL;
   /** URL of the SDK `worker.js`. Default: next to the SDK. */
   workerUrl?: string | URL;
@@ -144,8 +144,6 @@ export interface ReaderStats {
   worker: boolean;
   /** Frames decoded in parallel (number of workers, `1` on the main thread). */
   workers: number;
-  /** `true` when the SIMD build of the engine is used. */
-  simd: boolean;
 }
 
 export interface ReaderEvents {

@@ -64,7 +64,7 @@ await reader.destroy();  // removes the preview, frees the engine
 - `setRegionOfInterest(region)`
 - `setTorch(on)`, `torchAvailable`, `setZoom(zoom)`, `switchCamera(deviceId?)`, `BarcodeReader.listCameras()`
 - `clearCooldown(text)` — allow a code to be reported again immediately
-- `stats` — `{ fps, decodeMs, grabMs, frameWidth, frameHeight, backend, worker, workers, simd }`
+- `stats` — `{ fps, decodeMs, grabMs, frameWidth, frameHeight, backend, worker, workers }`
 - `video` — the underlying `<video>` element
 
 Detection points are in video pixels (`video.videoWidth` space).
@@ -97,6 +97,25 @@ export default { optimizeDeps: { exclude: ['@gueshbzh-perso/scanner'] } };
 If your setup cannot resolve the assets, copy `node_modules/@gueshbzh-perso/scanner/dist`
 to your public folder and pass `workerUrl` / `wasmUrl` explicitly.
 
+## Content Security Policy
+
+With a CSP, allow WebAssembly compilation and the SDK's module workers
+(served from your origin by your bundler):
+
+```
+script-src 'self' 'wasm-unsafe-eval';
+worker-src 'self';
+```
+
+The camera needs `camera` allowed by `Permissions-Policy` (allowed by default
+for the top-level page; add `allow="camera"` to an `<iframe>`).
+
+## Low-level engine
+
+`createEngine()` decodes frames you already have as pixels (custom pipelines,
+`VideoFrame`s…), with the same worker pool as the reader. It is an advanced API:
+the `Engine` interface may gain members in minor versions.
+
 ## How it works
 
 ```
@@ -117,7 +136,6 @@ overlay (ROI mask, highlights, torch / camera buttons) · beep · vibration
   frames are skipped instead of queued, so latency never builds up.
 - The scan state lives in one place (main thread), so multi-frame
   confirmation and de-duplication work across workers.
-- The SIMD build of the engine is picked automatically when the browser supports it.
 - If WebGL2 is missing or the context is lost, the pipeline switches to Canvas 2D.
 - If the engine crashes, the worker is restarted transparently.
 - The engine is downloaded and compiled once, then shared by every worker.
@@ -134,7 +152,7 @@ This package is part of an npm workspace: run commands from the repository root
 
 ```bash
 npm install        # at the repository root
-npm run build      # Rust → WASM (baseline + SIMD), then TypeScript
+npm run build      # Rust → WASM, then TypeScript
 npm run test:e2e   # headless Chromium with a fake camera (needs ffmpeg + Playwright)
 ```
 
@@ -144,4 +162,5 @@ automatically on first run; `wasm-opt` comes from the `binaryen` devDependency.
 
 ## License
 
-MIT
+MIT. The WebAssembly engine is compiled from Rust crates under permissive
+licenses: see `dist/wasm/THIRD_PARTY_LICENSES.md` in the package.

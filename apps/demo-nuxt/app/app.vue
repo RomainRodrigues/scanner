@@ -24,7 +24,7 @@ const statsLine = computed(() => {
   if (!s) return '';
   return (
     `${s.fps.toFixed(0)} fps · decode ${s.decodeMs.toFixed(1)} ms · grab ${s.grabMs.toFixed(1)} ms · ` +
-    `${s.frameWidth}×${s.frameHeight} · ${s.backend}${s.simd ? ' · simd' : ''}${s.worker ? ` · ${s.workers} workers` : ''}`
+    `${s.frameWidth}×${s.frameHeight} · ${s.backend}${s.worker ? ` · ${s.workers} workers` : ''}`
   );
 });
 
