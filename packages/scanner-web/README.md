@@ -48,7 +48,7 @@ await reader.destroy();  // removes the preview, frees the engine
 | `tryInvert` | `true` | Also read light-on-dark codes. |
 | `preprocessing` | `true` | Contrast / binarization fallbacks for hard frames. |
 | `linearConfirmations` | `2` | Agreeing reads before a 1D code is reported. Weak 1D formats (Code 39/93, ITF, Codabar, UPC-E, EAN-8) need one more; 2D codes are reported on the first read. |
-| `camera` | `{ facingMode: 'environment', resolution: 'hd' }` | Also `deviceId`, `rememberDevice` (default `true`). |
+| `camera` | `{ facingMode: 'environment', resolution: 'hd' }` | Also `deviceId`, `rememberDevice` (default `true`), `releaseWhenHidden` (default `true`: the camera is released while the page is hidden and reopened when it is visible again). |
 | `overlay` | all on | `showRegion`, `showDetections`, `showTorchButton`, `showCameraSwitch`, `color`, or `false`. |
 | `feedback` | beep + vibrate | `{ beep, vibrate }` or `false`. |
 | `processing` | `{ maxDimension: 1024, backend: 'auto' }` | Decoder image size; `'webgl'`, `'canvas'` or `'auto'`. |
