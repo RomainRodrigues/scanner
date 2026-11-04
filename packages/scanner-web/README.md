@@ -64,7 +64,7 @@ await reader.destroy();  // removes the preview, frees the engine
 - `setRegionOfInterest(region)`
 - `setTorch(on)`, `torchAvailable`, `setZoom(zoom)`, `switchCamera(deviceId?)`, `BarcodeReader.listCameras()`
 - `clearCooldown(text)` — allow a code to be reported again immediately
-- `stats` — `{ fps, decodeMs, grabMs, frameWidth, frameHeight, backend, worker, workers, simd }`
+- `stats` — `{ fps, decodeMs, grabMs, frameWidth, frameHeight, backend, worker, workers }`
 - `video` — the underlying `<video>` element
 
 Detection points are in video pixels (`video.videoWidth` space).
@@ -136,7 +136,6 @@ overlay (ROI mask, highlights, torch / camera buttons) · beep · vibration
   frames are skipped instead of queued, so latency never builds up.
 - The scan state lives in one place (main thread), so multi-frame
   confirmation and de-duplication work across workers.
-- The SIMD build of the engine is picked automatically when the browser supports it.
 - If WebGL2 is missing or the context is lost, the pipeline switches to Canvas 2D.
 - If the engine crashes, the worker is restarted transparently.
 - The engine is downloaded and compiled once, then shared by every worker.
@@ -153,7 +152,7 @@ This package is part of an npm workspace: run commands from the repository root
 
 ```bash
 npm install        # at the repository root
-npm run build      # Rust → WASM (baseline + SIMD), then TypeScript
+npm run build      # Rust → WASM, then TypeScript
 npm run test:e2e   # headless Chromium with a fake camera (needs ffmpeg + Playwright)
 ```
 

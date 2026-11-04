@@ -33,7 +33,7 @@ wasm-bindgen-test = "0.3"
 rxing = { workspace = true, features = ["encoders"] }
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = ["-O3", "--enable-simd", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+wasm-opt = ["-O3", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
 
 [lints]
 workspace = true

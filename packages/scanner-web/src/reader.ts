@@ -128,7 +128,6 @@ export class BarcodeReader {
       backend: this.grabber.kind,
       worker: this.engine.inWorker,
       workers: this.engine.concurrency,
-      simd: this.engine.simd,
     };
   }
 

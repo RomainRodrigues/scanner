@@ -8,7 +8,7 @@
 // workers. Decoding is CPU-bound and single-threaded per frame, so on phones
 // with many slow cores (Galaxy A14: decode ~125 ms) the pool multiplies the
 // frame rate.
-import { DecoderCore, SessionCore, compileWasm, defaultWasmUrl, loadWasm, simdSupported } from './core.js';
+import { DecoderCore, SessionCore, compileWasm, defaultWasmUrl, loadWasm } from './core.js';
 import type { FramePlan, FrameReport } from './core.js';
 import type { WorkerRequest, WorkerResponse } from './protocol.js';
 import type { PixelFormat } from './wasm/scanner_wasm.js';
@@ -24,7 +24,6 @@ export interface FrameReply {
 
 export interface Engine {
   readonly inWorker: boolean;
-  readonly simd: boolean;
   readonly version: string;
   /** Frames that can be decoded at the same time (number of workers). */
   readonly concurrency: number;
@@ -165,10 +164,7 @@ class WorkerPoolEngine implements Engine {
   /** Bumped by `configure`: reports planned with an older configuration are dropped. */
   private generation = 0;
 
-  constructor(
-    private workers: DecoderWorker[],
-    readonly simd: boolean,
-  ) {
+  constructor(private workers: DecoderWorker[]) {
     this.version = workers[0]?.version ?? '';
   }
 
@@ -266,10 +262,7 @@ class InlineEngine implements Engine {
   private session = new SessionCore();
   private decoder = new DecoderCore();
 
-  constructor(
-    readonly version: string,
-    readonly simd: boolean,
-  ) {}
+  constructor(readonly version: string) {}
 
   async configure(options: EngineOptions) {
     this.session.configure(options);
@@ -316,8 +309,7 @@ class InlineEngine implements Engine {
  * interface may gain members in minor versions.
  */
 export async function createEngine(options: AssetOptions = {}): Promise<Engine> {
-  const simd = simdSupported();
-  const wasmUrl = new URL(String(options.wasmUrl ?? defaultWasmUrl(simd)), location.href).href;
+  const wasmUrl = new URL(String(options.wasmUrl ?? defaultWasmUrl()), location.href).href;
   // Compiled once here: the main thread needs the engine for the session,
   // and the workers instantiate the same module without compiling it again.
   const module = await compileWasm(wasmUrl);
@@ -334,14 +326,14 @@ export async function createEngine(options: AssetOptions = {}): Promise<Engine> 
     try {
       for (let i = 0; i < count; i++) workers.push(new DecoderWorker(spawn, module));
       await Promise.all(workers.map((w) => w.init()));
-      return new WorkerPoolEngine(workers, simd);
+      return new WorkerPoolEngine(workers);
     } catch (err) {
       for (const w of workers) w.destroy();
       console.warn('[scanner] Web Worker unavailable, decoding on the main thread:', err);
     }
   }
 
-  return new InlineEngine(version, simd);
+  return new InlineEngine(version);
 }
 
 let shared: Promise<Engine> | null = null;
