@@ -29,6 +29,15 @@ updates:
       interval: weekly
     commit-message:
       prefix: build
+    ignore:
+      # TypeScript is pinned to ~6.0: typescript-eslint (peer `<6.1.0`), vue-tsc
+      # and vite-plugin-checker do not support TypeScript 7 yet (`npm ci` fails
+      # with ERESOLVE). Lift this once they do.
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
+      # Types must match the Node.js version the project targets (22), not the latest.
+      - dependency-name: '@types/node'
+        update-types: [version-update:semver-major]
     groups:
       npm:
         update-types: [minor, patch]
