@@ -6,9 +6,12 @@
 //! - [`contrast_pipeline`]: CLAHE, for low light / glare / faded print.
 //! - [`full_pipeline`]: CLAHE → unsharp mask → Sauvola binarization, for
 //!   shadows and blur.
+//! - [`linear_enhance`]: smoothing along the bars + local contrast
+//!   normalisation, for 1D codes under uneven lighting or grainy print.
 
 pub mod binarize;
 pub mod contrast;
+pub mod linear;
 pub mod roi;
 pub mod sharpen;
 
@@ -16,6 +19,7 @@ use image::GrayImage;
 
 pub use binarize::sauvola_binarize;
 pub use contrast::clahe;
+pub use linear::{linear_enhance, LinearScale};
 pub use roi::crop_roi;
 pub use sharpen::unsharp_mask;
 

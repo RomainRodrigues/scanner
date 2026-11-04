@@ -10,8 +10,9 @@
 //! Sauvola…) on the same image until one succeeds. On a camera stream that
 //! would make every *empty* frame — the common case — pay for the whole
 //! cascade. Instead, each frame runs the fast path plus **one** fallback
-//! strategy, and the fallback changes on every frame. At 30 fps all
-//! strategies are covered within ~150 ms while the per-frame cost stays at
+//! strategy, and the fallback changes on every frame until one of them
+//! reads a code (it is then kept while it keeps reading). At 30 fps all
+//! 7 strategies are covered within ~250 ms while the per-frame cost stays at
 //! roughly two decoder passes.
 //!
 //! # Example
@@ -157,8 +158,15 @@ impl ScanSession {
         let mut result = self.scanner.run_strategy(&img, Strategy::Fast);
         if result.is_err() && !self.fallbacks.is_empty() {
             let strategy = self.fallbacks[self.next_fallback % self.fallbacks.len()];
-            self.next_fallback = self.next_fallback.wrapping_add(1);
             result = self.scanner.run_strategy(&img, strategy);
+            // Sticky rotation: a strategy that just read a code is kept for the
+            // next frame. 1D codes need several agreeing reads within ~1 s, and
+            // the strategy that reads a hard code often is the only one that
+            // can: rotating away would delay the confirmation by a whole cycle
+            // (measured on the ear-tag camera ROI test: 12 frames → 6).
+            if result.is_err() {
+                self.next_fallback = self.next_fallback.wrapping_add(1);
+            }
         }
         result.map(|r| offset_results(r, origin))
     }

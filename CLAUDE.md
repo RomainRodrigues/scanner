@@ -94,6 +94,10 @@ version courante (utilisé pour la première publication).
 | Points rxing inutilisables pour Code 39 (inversés, à l'intérieur) et Codabar (fin = bout de ligne) → exemptés de la vérification | `decode/verify.rs` (`geometry`) |
 | Position des points 1D propre à chaque symbologie (milieu des motifs start/stop) | `decode/verify.rs` (`geometry`) |
 | Codes 1D confirmés sur plusieurs frames (2, formats fragiles 3), 2D sur 1 frame | `result.rs` (`required_confirmations`), `realtime/tracker.rs` |
+| Zone de silence exigée : 5 modules pour les formats fragiles, **2** pour les formats à checksum (Code 128, EAN-13, UPC-A) — les vraies étiquettes/boucles ont souvent bien moins que la norme (bord de la boucle à ~3 modules sur la fixture) | `decode/verify.rs` (`STRONG_QUIET_MODULES`) |
+| Gravure laser / éclairage inégal : stratégie `Linear` = lissage dans le sens des barres + seuillage local par ligne. Sortie **binaire** obligatoire (une sortie en niveaux de gris est re-seuillée par `HybridBinarizer` et le code est perdu). Deux échelles de fenêtre (`Fine`, `Coarse`) car la fenêtre idéale ≈ 6 modules et la taille des modules est inconnue | `preprocess/linear.rs`, fixture `real/cattle_ear_tag_code128.jpg` |
+| La vérification de zone de silence de `Linear` se fait sur l'image traitée (sur l'image brute, le dégradé d'éclairage ressemble à des barres) | `scanner.rs` (`run_strategy`) |
+| Rotation **collante** : une stratégie de secours qui vient de lire un code est gardée à la frame suivante, sinon la 2ᵉ lecture d'un code 1D arrive un cycle plus tard (12 → 6 frames sur la boucle) | `realtime/session.rs` (`scan_one`) |
 | Micro QR lu par le lecteur QR de rxing et rapporté comme `qr_code` | `result.rs` |
 | Rotation des stratégies : une seule stratégie coûteuse par frame (×6,6 sur les frames vides) | `realtime/session.rs` |
 | Throttle adaptatif désactivé par le SDK (le worker gère déjà la contre-pression) | `packages/scanner-web/src/core.ts` |
@@ -107,6 +111,7 @@ version courante (utilisé pour la première publication).
 | Son de détection : l'`AudioContext` doit être créé pendant un geste utilisateur (iOS) | `src/feedback.ts`, `src/reader.ts` |
 | Vite/Nuxt : `optimizeDeps.exclude` obligatoire, sinon les URL du worker et du `.wasm` cassent | `apps/demo-nuxt/nuxt.config.ts`, README du SDK |
 | Tunnel Cloudflare : hôte `*.trycloudflare.com` autorisé ; QR code seulement si stdout est un terminal | `apps/demo-nuxt/nuxt.config.ts`, README de la démo |
+| Pied de page de la démo : version du SDK **et** commit. Entre deux releases, `main` (donc la démo) contient du code plus récent que le numéro de version | `apps/demo-nuxt/nuxt.config.ts` (`runtimeConfig`) |
 | Démo sur le domaine `scanner.romrd.fr` (racine, donc pas de `NUXT_APP_BASE_URL`). Le domaine se règle dans *Settings → Pages* ; le fichier `CNAME` est ignoré pour un déploiement Actions mais gardé par sécurité | `.github/workflows/pages.yml`, `apps/demo-nuxt/public/CNAME` |
 | `allow-unwrap-in-tests` de clippy ne couvre pas `#[wasm_bindgen_test]` | `crates/scanner-wasm/tests/web.rs` |
 | release-please met à jour `Cargo.toml` et `package.json` mais pas les lockfiles (qui recopient la version) → job dédié sur la PR de release | `.github/workflows/release.yml` (`sync-lockfiles`) |
@@ -121,5 +126,8 @@ version courante (utilisé pour la première publication).
   les valeurs attendues.
 - Les cas les plus durs sont **synthétisés dans les tests** (encodeurs rxing, flou,
   bruit, textures) : c'est déterministe et ça couvre chaque format.
-- Ce qui manque encore : un jeu de **vraies photos** (reflets, codes abîmés, angles)
-  pour un benchmark réaliste. Toute photo ajoutée doit avoir sa valeur attendue.
+- `tests/fixtures/real/` contient les **vraies photos** (une pour l'instant : boucle
+  bovine, Code 128 gravé au laser). Chaque photo a sa valeur attendue et est testée en
+  scan statique, en session et telle que la voit la caméra du SDK (recadrage ROI), plus
+  un scénario e2e. Toute photo qui échoue chez un utilisateur doit finir ici.
+- Ce qui manque encore : davantage de vraies photos (reflets, codes abîmés, angles).
