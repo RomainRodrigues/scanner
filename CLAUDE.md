@@ -79,6 +79,12 @@ Une **seule version** pour tout le projet, jamais modifiée à la main :
 2. Fusionner cette PR → tag `vX.Y.Z`, release GitHub et **publication npm** du SDK
    (avec provenance).
 
+**Fusion d'une PR : toujours un *merge commit* dont le message n'est pas un commit
+conventionnel** (ex. titre `Merge pull request #N …`, corps `PR #N`). GitHub met par
+défaut le titre de la PR dans le corps du merge commit ; s'il commence par `feat:` ou
+`fix:`, release-please le compte comme un commit de plus et la ligne apparaît en double
+dans le changelog (c'est arrivé pour la 0.5.0).
+
 Les crates Rust ne sont pas publiées (`publish = false`) : elles sont livrées dans le
 paquet npm. Lancer manuellement le workflow *Release* (`workflow_dispatch`) publie la
 version courante (utilisé pour la première publication).
