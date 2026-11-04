@@ -106,6 +106,7 @@ version courante (utilisé pour la première publication).
 | Rotation **collante** : une stratégie de secours qui vient de lire un code est gardée à la frame suivante, sinon la 2ᵉ lecture d'un code 1D arrive un cycle plus tard (12 → 6 frames sur la boucle) | `realtime/session.rs` (`scan_one`) |
 | Micro QR lu par le lecteur QR de rxing et rapporté comme `qr_code` | `result.rs` |
 | Rotation des stratégies : une seule stratégie coûteuse par frame (×6,6 sur les frames vides) | `realtime/session.rs` |
+| `Linear` décode **une ligne sur `row_step`** (le flou vertical rend les autres redondantes), avec les lecteurs 1D seuls et **sans** le réessai à 90° de rxing : ce réessai n'a lieu que si la source de luminance sait tourner, d'où `PlanarYUVLuminanceSource` (pas de rotation) au lieu de `Luma8LuminanceSource`. 69 → 19 ms sur une frame texturée | `decode/rxing_backend.rs` (`decode_rows`), `scanner.rs` (`decode_linear`) |
 | Throttle adaptatif désactivé par le SDK (le worker gère déjà la contre-pression) | `packages/scanner-web/src/core.ts` |
 | Vue `frameBuffer()` invalidée à chaque croissance de la mémoire WASM : ne jamais la garder | `crates/scanner-wasm/src/lib.rs` |
 | Une seule frame en vol : on saute des frames au lieu de les empiler | `src/reader.ts` |
