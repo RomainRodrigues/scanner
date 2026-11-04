@@ -923,7 +923,7 @@ dependencies = [
 
 [[package]]
 name = "scanner-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "criterion",
  "env_logger",
@@ -937,7 +937,7 @@ dependencies = [
 
 [[package]]
 name = "scanner-wasm"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "chrono",
  "console_error_panic_hook",
