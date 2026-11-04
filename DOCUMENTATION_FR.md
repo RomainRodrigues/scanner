@@ -161,7 +161,8 @@ commit (Conventional Commits) :
    met à jour `Cargo.toml`, `packages/scanner-web/package.json`, `CHANGELOG.md` et les
    lockfiles.
 2. Tu relis la PR, tu la fusionnes quand tu veux publier → tag `v0.5.0`, release GitHub, et
-   publication du SDK sur npm avec provenance.
+   publication du SDK sur npm (avec provenance si le dépôt est public : npm la refuse
+   pour un dépôt privé).
 
 **À configurer une fois :**
 

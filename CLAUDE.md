@@ -77,7 +77,7 @@ Une **seule version** pour tout le projet, jamais modifiée à la main :
    met à jour `Cargo.toml` (`workspace.package.version`), `packages/scanner-web/package.json`,
    `CHANGELOG.md`, puis les deux lockfiles.
 2. Fusionner cette PR → tag `vX.Y.Z`, release GitHub et **publication npm** du SDK
-   (avec provenance).
+   (avec provenance si le dépôt est public : npm la refuse pour un dépôt privé).
 
 **Fusion d'une PR : toujours un *merge commit* dont le message n'est pas un commit
 conventionnel** (ex. titre `Merge pull request #N …`, corps `PR #N`). GitHub met par
@@ -123,6 +123,7 @@ version courante (utilisé pour la première publication).
 | release-please met à jour `Cargo.toml` et `package.json` mais pas les lockfiles (qui recopient la version) → job dédié sur la PR de release | `.github/workflows/release.yml` (`sync-lockfiles`) |
 | Publication npm par OIDC (trusted publishing) : npm ≥ 11.5.1 requis, Node 22 n'embarque que npm 10 | `.github/workflows/release.yml` |
 | release-please réécrit `.release-please-manifest.json` en JSON compact à chaque release → exclu de Prettier (sinon `npm run lint` casse sur `main` après chaque release) | `.prettierignore` |
+| npm refuse la provenance pour un dépôt **privé** (E422 « Unsupported … repository visibility ») → `--no-provenance` tant que le dépôt est privé, `--provenance` sinon ; le trusted publishing fonctionne dans les deux cas | `.github/workflows/release.yml` |
 | `bootstrap-sha` de release-please = dernier commit de la 0.4.0 : sans lui, la première exécution (aucune release existante) reprendrait tout l'historique. Ne sert plus dès que le tag `v0.4.0` existe ; impose une fusion par *merge commit* (pas *squash*) | `release-please-config.json` |
 | `wasm-opt` vient de la devDependency `binaryen` (dans le PATH via `npm run`) ; sans lui le build marche mais le `.wasm` est ~7 % plus gros | `packages/scanner-web/scripts/build-wasm.mjs` |
 

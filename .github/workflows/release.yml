@@ -72,7 +72,11 @@ jobs:
       # Trusted publishing (OIDC) needs npm >= 11.5.1; Node 22 ships npm 10.
       - run: npm install -g npm@latest
       - name: Publish to npm
-        run: npm publish -w @gueshbzh-perso/scanner --access public --provenance
+        # npm only accepts provenance from public repositories ("Unsupported GitHub
+        # Actions source repository visibility: private", E422 on the 0.5.0 release).
+        # Trusted publishing itself works from a private repository, so provenance
+        # is turned off explicitly while the repository is private.
+        run: npm publish -w @gueshbzh-perso/scanner --access public ${{ github.event.repository.private && '--no-provenance' || '--provenance' }}
         env:
           # Not needed once npm trusted publishing is configured for this workflow.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
