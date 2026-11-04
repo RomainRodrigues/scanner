@@ -25,9 +25,11 @@ const tmp = mkdtempSync(join(tmpdir(), 'scanner-e2e-'));
 const executablePath = process.env.CHROMIUM_PATH || undefined;
 
 /** Render a 1280×720 camera feed with `image` pasted at the center, scaled to `size` px wide. */
-function fakeCamera(name, image, size, { invert = false } = {}) {
+function fakeCamera(name, image, size, { invert = false, photo = false } = {}) {
   const out = join(tmp, `${name}.y4m`);
   const neg = invert ? ',negate' : '';
+  // Synthetic codes keep sharp modules; real photos are resampled smoothly.
+  const filter = photo ? 'bicubic' : 'neighbor';
   execFileSync('ffmpeg', [
     '-loglevel',
     'error',
@@ -39,7 +41,7 @@ function fakeCamera(name, image, size, { invert = false } = {}) {
     '-i',
     image,
     '-filter_complex',
-    `[1]scale=${size}:-1:flags=neighbor${neg}[c];[0][c]overlay=(W-w)/2:(H-h)/2`,
+    `[1]scale=${size}:-1:flags=${filter}${neg}[c];[0][c]overlay=(W-w)/2:(H-h)/2`,
     '-frames:v',
     '30',
     '-pix_fmt',
@@ -79,6 +81,15 @@ const scenarios = [
     expect: 'https://github.com/romrd/scanner',
     options: {},
   },
+  {
+    // Real phone photo: laser-engraved Code 128 on a cattle ear tag.
+    name: 'ear-tag-photo',
+    image: 'real/cattle_ear_tag_code128.jpg',
+    size: 540,
+    photo: true,
+    expect: '02502239036645',
+    options: {},
+  },
 ];
 
 const server = await serve(0);
@@ -90,7 +101,7 @@ for (const s of scenarios) {
   if (!existsSync(src)) {
     throw new Error(`missing fixture ${s.image}`);
   }
-  const video = fakeCamera(s.name, src, s.size, { invert: s.invert });
+  const video = fakeCamera(s.name, src, s.size, { invert: s.invert, photo: s.photo });
   const browser = await chromium.launch({
     executablePath,
     args: [

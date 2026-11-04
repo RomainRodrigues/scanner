@@ -99,6 +99,63 @@ fn decodes_multiple_codes_in_one_image() {
     assert_eq!(texts, ["Code A", "Code B"]);
 }
 
+/// Real photo (phone camera, 756×1008) of a French cattle ear tag: laser-engraved
+/// Code 128 on orange plastic, uneven lighting along the code, grainy bars that
+/// look hollow, and the tag edge only ~3 modules from the code.
+/// Content: "0250" (ISO 3166 France) + national number 2239036645.
+#[test]
+fn decodes_laser_engraved_cattle_ear_tag() {
+    let results = scan(
+        "real/cattle_ear_tag_code128.jpg",
+        ScannerConfig::image_file(),
+    )
+    .expect("ear tag Code 128 should decode");
+    assert_eq!(
+        results[0],
+        ("02502239036645".to_string(), BarcodeFormat::Code128)
+    );
+}
+
+/// Same tag in a camera session: found within a few frames thanks to the
+/// rotating fallback strategies.
+#[test]
+fn session_reads_cattle_ear_tag() {
+    let img = luma("real/cattle_ear_tag_code128.jpg");
+    let (w, h) = img.dimensions();
+    let mut s = session();
+    let found = (0..12).find_map(|_| s.process_frame(img.as_raw(), w, h, PixelFormat::Luma));
+    assert_eq!(found.expect("ear tag in session")[0].text, "02502239036645");
+}
+
+/// The same tag as the SDK sees it from a 1280×720 camera: photo scaled to
+/// 720 px high, then cropped to the default region of interest (1024×432).
+/// The code is smaller here (~3.4 px per module instead of ~4.7).
+#[test]
+fn session_reads_cattle_ear_tag_in_camera_roi() {
+    let photo = image::open(fixture("real/cattle_ear_tag_code128.jpg")).expect("fixture");
+    let photo = photo
+        .resize(540, 720, image::imageops::FilterType::CatmullRom)
+        .to_luma8();
+    let mut frame = image::GrayImage::from_pixel(1280, 720, image::Luma([255]));
+    image::imageops::overlay(&mut frame, &photo, (1280 - 540) / 2, 0);
+    let roi = image::imageops::crop_imm(&frame, 128, 144, 1024, 432).to_image();
+    let mut s = session();
+    let (frames, results) = (1..=14)
+        .find_map(|i| {
+            s.process_frame(roi.as_raw(), 1024, 432, PixelFormat::Luma)
+                .map(|r| (i, r))
+        })
+        .expect("ear tag in camera ROI");
+    assert_eq!(results[0].text, "02502239036645");
+    // Once a fallback strategy reads the code, the session keeps it for the
+    // next frame, so the 2 reads a 1D code needs come back to back.
+    println!("ear tag confirmed after {frames} frames");
+    assert!(
+        frames <= 7,
+        "confirmed after {frames} frames (was 12 before sticky rotation)"
+    );
+}
+
 // ── Format filter (regression: rxing does not strictly honour PossibleFormats) ─
 
 #[test]

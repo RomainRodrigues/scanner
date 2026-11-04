@@ -55,6 +55,7 @@ pub mod scanner;
 pub use config::{Roi, ScannerConfig};
 pub use error::ScanError;
 pub use frame::PixelFormat;
+pub use preprocess::LinearScale;
 pub use realtime::session::{ScanSession, SessionStats};
 pub use result::{BarcodeFormat, Point, ScanResult};
 pub use scanner::{Scanner, Strategy};

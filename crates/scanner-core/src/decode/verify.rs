@@ -10,9 +10,14 @@
 use crate::result::{BarcodeFormat, ScanResult};
 use image::GrayImage;
 
-/// Quiet zone width we require, in modules (the specs ask for 7–10; we stay
-/// tolerant to blur and tight framing).
+/// Quiet zone width required for weak formats, in modules (the specs ask for
+/// 7–10; we stay tolerant to blur and tight framing).
 const QUIET_MODULES: f32 = 5.0;
+/// Quiet zone width required for checksummed formats (Code 128, EAN-13, UPC-A).
+/// Real labels and tags are often printed with much less than the spec asks:
+/// the cattle ear-tag fixture has the tag edge ~3 modules from the code. The
+/// checksum already makes texture false positives rare for these formats.
+const STRONG_QUIET_MODULES: f32 = 2.0;
 /// A quiet zone may vary by at most this fraction of the barcode's own contrast.
 const QUIET_MAX_RELATIVE_CONTRAST: f32 = 0.4;
 /// Minimum quiet zone that must be visible inside the image, in modules.
@@ -97,7 +102,11 @@ pub fn plausible_linear(img: &GrayImage, r: &ScanResult) -> bool {
     // Skip the rest of the start/stop pattern plus a 2-module safety margin.
     let skip_start = (geo.inner_start + 2.0) * module;
     let skip_end = (geo.inner_end + 2.0) * module;
-    let quiet = QUIET_MODULES * module;
+    let quiet = if strict {
+        QUIET_MODULES
+    } else {
+        STRONG_QUIET_MODULES
+    } * module;
     let offset = (module * 2.0).max(2.0);
     let mut votes_ok = 0;
     let mut votes_total = 0;

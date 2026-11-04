@@ -7,8 +7,8 @@ use crate::config::ScannerConfig;
 use crate::decode::{verify, Effort, RxingDecoder};
 use crate::error::ScanError;
 use crate::frame::{Frame, PixelFormat};
-use crate::preprocess::{self, roi::crop_roi_owned};
-use crate::result::{Point, ScanResult};
+use crate::preprocess::{self, roi::crop_roi_owned, LinearScale};
+use crate::result::{BarcodeFormat, Point, ScanResult};
 use image::{DynamicImage, GrayImage};
 use log::debug;
 use web_time::Instant;
@@ -28,6 +28,10 @@ pub enum Strategy {
     Binarized,
     /// Inverted + binarized.
     InvertedBinarized,
+    /// Smoothing along the bars + row-wise local thresholding, for 1D codes
+    /// under uneven lighting or with grainy print (laser-engraved tags), at
+    /// two window sizes. Only enabled when 1D formats are requested.
+    Linear(LinearScale),
 }
 
 /// High-level scanner for one-shot image scanning.
@@ -111,10 +115,22 @@ impl Scanner {
             s.push(Strategy::Contrast);
             s.push(Strategy::Binarized);
         }
+        if self.config.preprocessing && self.wants_linear() {
+            s.push(Strategy::Linear(LinearScale::Fine));
+            s.push(Strategy::Linear(LinearScale::Coarse));
+        }
         if self.config.try_invert && self.config.preprocessing {
             s.push(Strategy::InvertedBinarized);
         }
         s
+    }
+
+    /// `true` when at least one 1D format may be decoded.
+    fn wants_linear(&self) -> bool {
+        match &self.config.formats {
+            None => true,
+            Some(f) => f.is_empty() || f.iter().any(BarcodeFormat::is_linear),
+        }
     }
 
     /// Run a single strategy on an (already cropped) grayscale image.
@@ -123,11 +139,19 @@ impl Scanner {
         img: &GrayImage,
         strategy: Strategy,
     ) -> Result<Vec<ScanResult>, ScanError> {
-        let results = self.run_strategy_unchecked(img, strategy)?;
+        // The Linear strategy decodes a normalised image: verify on that one,
+        // where the lighting gradient (and e.g. the edge of a tag next to the
+        // code) no longer looks like bars.
+        let enhanced = match strategy {
+            Strategy::Linear(scale) => Some(preprocess::linear_enhance(img, scale)),
+            _ => None,
+        };
+        let reference = enhanced.as_ref().unwrap_or(img);
+        let results = self.run_strategy_unchecked(reference, strategy)?;
         // Drop 1D reads that are not surrounded by a quiet zone (textures).
         let results: Vec<ScanResult> = results
             .into_iter()
-            .filter(|r| verify::plausible_linear(img, r))
+            .filter(|r| verify::plausible_linear(reference, r))
             .collect();
         if results.is_empty() {
             Err(ScanError::NotFound)
@@ -136,12 +160,14 @@ impl Scanner {
         }
     }
 
+    /// `img` is already enhanced for [`Strategy::Linear`].
     fn run_strategy_unchecked(
         &self,
         img: &GrayImage,
         strategy: Strategy,
     ) -> Result<Vec<ScanResult>, ScanError> {
         match strategy {
+            Strategy::Linear(_) => self.decoder.decode_with(img, Effort::Hard),
             Strategy::Fast => self.decoder.decode_with(img, Effort::Fast),
             Strategy::Hard => self.decoder.decode_with(img, Effort::Hard),
             Strategy::Inverted => self.decoder.decode_inverted(img, Effort::Hard),
@@ -294,6 +320,14 @@ mod tests {
             ..ScannerConfig::default()
         });
         assert_eq!(s.fallback_strategies(), vec![Strategy::Hard]);
-        assert_eq!(Scanner::with_defaults().fallback_strategies().len(), 5);
+        assert_eq!(Scanner::with_defaults().fallback_strategies().len(), 7);
+        let qr_only = Scanner::new(ScannerConfig {
+            formats: Some(vec![BarcodeFormat::QrCode]),
+            ..ScannerConfig::default()
+        });
+        assert!(!qr_only
+            .fallback_strategies()
+            .iter()
+            .any(|s| matches!(s, Strategy::Linear(_))));
     }
 }
