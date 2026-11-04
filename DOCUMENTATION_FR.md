@@ -96,9 +96,30 @@ Débit du moteur (benchmark e2e, frames texturées, 4 cœurs) : ~10 fps avec 1 w
 3. **Benchmark sur un vrai jeu d'images** (photos de codes réels, flous, reflets) pour
    comparer objectivement avec STRICH / ZXing / le `BarcodeDetector` natif.
 4. Un `PopupScanner` (scan en un appel dans une `<dialog>`), et des wrappers React / Vue.
-5. Taille du WASM (~1 Mo, ~470 Ko gzip) : retirer les formats inutilisés via des
-   features Cargo par build.
+5. Taille du WASM : voir la feuille de route ci-dessous.
 6. Du SIMD **écrit à la main** dans les boucles chaudes (prétraitements), mesuré.
+
+### Feuille de route
+
+**Avant la 1.0.0** (la 1.0 engage l'API : plus de changement cassant sans 2.0) :
+
+- [ ] Tester la démo sur de vrais téléphones (au moins un iPhone et le Galaxy A14) :
+  fps, lecture de la boucle, caméra libérée en arrière-plan, choix WebGL / Canvas.
+- [ ] Migrer les bindings WASM vers tsify 0.5 (`tsify::Ts`, voir CLAUDE.md), puis relire
+  toute l'API publique (exports, noms d'options) pour la figer.
+- [ ] Ajouter une dizaine de vraies photos dans `tests/fixtures/real/` (EAN en magasin,
+  QR sur écran, reflets, codes abîmés), testées automatiquement.
+- [ ] Publier la 1.0.0 : commit avec le pied `Release-As: 1.0.0`, release-please fait le reste.
+
+**Après la 1.0** — taille du moteur. Mesuré en 0.8 : `.wasm` 1,12 Mo brut,
+**486 Ko gzip**, **383 Ko brotli** (+ ~25 Ko gzip de JS). Il n'est téléchargé qu'à la
+création du scanner, une seule fois (cache), et compilé une seule fois pour tous les
+workers. Le poids vient surtout de rxing (lecteurs des 14 formats). Pistes, à mesurer :
+
+1. Builds par famille de formats (QR seul, 1D seuls…) via les features Cargo de rxing,
+   choisis automatiquement selon l'option `formats`.
+2. Analyse du binaire (`twiggy`) pour retirer le code embarqué inutile.
+3. Documenter le service du `.wasm` en brotli (~100 Ko de moins qu'en gzip).
 
 ---
 
