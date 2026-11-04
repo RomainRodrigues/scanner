@@ -11,8 +11,8 @@ use image::GrayImage;
 use rxing::common::HybridBinarizer;
 use rxing::multi::{GenericMultipleBarcodeReader, MultipleBarcodeReader};
 use rxing::{
-    BinaryBitmap, DecodeHints, Exceptions, Luma8LuminanceSource, MultiFormatReader, RXingResult,
-    Reader,
+    BinaryBitmap, DecodeHints, Exceptions, Luma8LuminanceSource, LuminanceSource,
+    MultiFormatReader, PlanarYUVLuminanceSource, RXingResult, Reader,
 };
 
 /// How hard the decoder should look for a code.
@@ -29,6 +29,9 @@ pub enum Effort {
 pub struct RxingDecoder {
     hints_fast: DecodeHints,
     hints_hard: DecodeHints,
+    /// 1D formats only, every row (see [`RxingDecoder::decode_rows`]).
+    /// `None` when no 1D format is requested.
+    hints_rows: Option<DecodeHints>,
     /// Formats the caller explicitly requested. When `Some`, any decoded result
     /// whose format is not in this list is discarded (post-decode filter).
     ///
@@ -45,9 +48,11 @@ impl RxingDecoder {
         hints_fast.TryHarder = Some(false);
         let mut hints_hard = build_hints(config);
         hints_hard.TryHarder = Some(true);
+        let hints_rows = linear_hints(&hints_hard);
         Self {
             hints_fast,
             hints_hard,
+            hints_rows,
             allowed_formats: config.formats.clone(),
             max_results: config.max_results.max(1),
         }
@@ -82,6 +87,38 @@ impl RxingDecoder {
         self.decode_raw(inverted, width, height, effort)
     }
 
+    /// Decode 1D codes only, looking at **every row** of `img` and nothing else.
+    ///
+    /// Meant for images that are already binarised row by row (the `Linear`
+    /// strategy). Compared with [`Effort::Hard`] it skips:
+    /// - the 2D detectors (QR, Data Matrix…), useless on such an image;
+    /// - rxing's 90° retry of the whole image: a row-wise threshold destroys
+    ///   vertical codes anyway. The retry only happens when the luminance
+    ///   source supports rotation, so this uses `PlanarYUVLuminanceSource`
+    ///   (no rotation support) instead of `Luma8LuminanceSource`.
+    ///
+    /// Measured on a 1024×432 camera ROI (x86, native): 45 → 4 ms on a
+    /// textured empty frame.
+    pub fn decode_rows(&self, img: &GrayImage) -> Result<Vec<ScanResult>, ScanError> {
+        let Some(hints) = &self.hints_rows else {
+            return Err(ScanError::NotFound);
+        };
+        let (width, height) = (img.width() as usize, img.height() as usize);
+        let source = PlanarYUVLuminanceSource::new_with_all(
+            img.as_raw().clone(),
+            width,
+            height,
+            0,
+            0,
+            width,
+            height,
+            false,
+            false,
+        )
+        .map_err(map_error)?;
+        self.decode_source(source, hints)
+    }
+
     fn decode_raw(
         &self,
         luma: Vec<u8>,
@@ -93,8 +130,14 @@ impl RxingDecoder {
             Effort::Fast => &self.hints_fast,
             Effort::Hard => &self.hints_hard,
         };
+        self.decode_source(Luma8LuminanceSource::new(luma, width, height), hints)
+    }
 
-        let source = Luma8LuminanceSource::new(luma, width, height);
+    fn decode_source<S: LuminanceSource>(
+        &self,
+        source: S,
+        hints: &DecodeHints,
+    ) -> Result<Vec<ScanResult>, ScanError> {
         let mut bitmap = BinaryBitmap::new(HybridBinarizer::new(source));
 
         let raw: Vec<RXingResult> = if self.max_results > 1 {
@@ -162,6 +205,26 @@ fn build_hints(config: &ScannerConfig) -> DecodeHints {
     });
 
     hints
+}
+
+/// `hints` restricted to the 1D formats it contains, or `None` if there are none.
+fn linear_hints(hints: &DecodeHints) -> Option<DecodeHints> {
+    let linear: std::collections::HashSet<rxing::BarcodeFormat> = BarcodeFormat::SUPPORTED
+        .iter()
+        .filter(|f| f.is_linear())
+        .filter_map(format_to_rxing)
+        .filter(|f| {
+            hints
+                .PossibleFormats
+                .as_ref()
+                .is_some_and(|p| p.contains(f))
+        })
+        .collect();
+    (!linear.is_empty()).then(|| {
+        let mut h = hints.clone();
+        h.PossibleFormats = Some(linear);
+        h
+    })
 }
 
 /// Convert our `BarcodeFormat` to an rxing `BarcodeFormat`.

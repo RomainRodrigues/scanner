@@ -117,7 +117,7 @@ fn decodes_laser_engraved_cattle_ear_tag() {
 }
 
 /// Same tag in a camera session: found within a few frames thanks to the
-/// rotating fallback strategies.
+/// fallback strategies run in turn.
 #[test]
 fn session_reads_cattle_ear_tag() {
     let img = luma("real/cattle_ear_tag_code128.jpg");
@@ -297,4 +297,63 @@ fn session_finds_inverted_code_and_deduplicates_it() {
             .is_none());
     }
     assert_eq!(s.stats().codes_detected, 1);
+}
+
+// ── Linear strategy: 1D rows only (performance contract) ─────────────────────
+
+/// `decode_rows` (used by the `Linear` strategy) runs the 1D readers on the
+/// rows of the image and nothing else: no 2D detectors and no 90° retry,
+/// both measured as wasted time on a row-wise binarised image. On clean
+/// images that `Hard` reads, it must therefore miss the QR code and the
+/// rotated barcode.
+#[test]
+fn decode_rows_skips_2d_and_rotation() {
+    use scanner_core::decode::{Effort, RxingDecoder};
+    let decoder = RxingDecoder::new(&ScannerConfig::default());
+
+    let code = luma("barcode_1d/code128.png");
+    let results = decoder.decode_rows(&code).expect("horizontal Code 128");
+    assert_eq!(results[0].text, "SCANNER-TEST-128");
+
+    for (name, img) in [
+        ("rotated Code 128", image::imageops::rotate90(&code)),
+        ("QR code", luma("qr/clean_hd.png")),
+    ] {
+        assert!(
+            decoder.decode_with(&img, Effort::Hard).is_ok(),
+            "{name}: Hard"
+        );
+        assert!(
+            matches!(decoder.decode_rows(&img), Err(ScanError::NotFound)),
+            "{name}: decode_rows must not read it"
+        );
+    }
+}
+
+/// The `Linear` strategy decodes a subset of rows: its points must still be
+/// in the coordinates of the input image (not of the sampled rows).
+#[test]
+fn linear_strategy_points_are_in_image_coordinates() {
+    use scanner_core::{LinearScale, Strategy};
+    let scanner = Scanner::new(ScannerConfig {
+        roi: None,
+        ..ScannerConfig::default()
+    });
+    let code = luma("barcode_1d/code128.png");
+    let top = 400;
+    let mut img =
+        image::GrayImage::from_pixel(code.width(), code.height() + top, image::Luma([255]));
+    image::imageops::overlay(&mut img, &code, 0, i64::from(top));
+
+    let results = scanner
+        .run_strategy(&img, Strategy::Linear(LinearScale::Fine))
+        .expect("Code 128 via Linear");
+    assert_eq!(results[0].text, "SCANNER-TEST-128");
+    let code_rows = top as f32..img.height() as f32;
+    for p in &results[0].points {
+        assert!(
+            code_rows.contains(&p.y),
+            "point {p:?} not on the code rows {code_rows:?}"
+        );
+    }
 }

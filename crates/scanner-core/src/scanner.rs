@@ -139,15 +139,11 @@ impl Scanner {
         img: &GrayImage,
         strategy: Strategy,
     ) -> Result<Vec<ScanResult>, ScanError> {
-        // The Linear strategy decodes a normalised image: verify on that one,
-        // where the lighting gradient (and e.g. the edge of a tag next to the
-        // code) no longer looks like bars.
-        let enhanced = match strategy {
-            Strategy::Linear(scale) => Some(preprocess::linear_enhance(img, scale)),
-            _ => None,
-        };
+        let (results, enhanced) = self.decode_strategy(img, strategy)?;
+        // The Linear strategy is verified on its normalised image, where the
+        // lighting gradient (and e.g. the edge of a tag next to the code) no
+        // longer looks like bars.
         let reference = enhanced.as_ref().unwrap_or(img);
-        let results = self.run_strategy_unchecked(reference, strategy)?;
         // Drop 1D reads that are not surrounded by a quiet zone (textures).
         let results: Vec<ScanResult> = results
             .into_iter()
@@ -160,14 +156,19 @@ impl Scanner {
         }
     }
 
-    /// `img` is already enhanced for [`Strategy::Linear`].
-    fn run_strategy_unchecked(
+    /// Decode with one strategy, without verification. Also returns the image
+    /// the results must be verified on, when it is not `img`.
+    fn decode_strategy(
         &self,
         img: &GrayImage,
         strategy: Strategy,
-    ) -> Result<Vec<ScanResult>, ScanError> {
-        match strategy {
-            Strategy::Linear(_) => self.decoder.decode_with(img, Effort::Hard),
+    ) -> Result<(Vec<ScanResult>, Option<GrayImage>), ScanError> {
+        let results = match strategy {
+            Strategy::Linear(scale) => {
+                let enhanced = preprocess::linear_enhance(img, scale);
+                let results = self.decode_linear(&enhanced)?;
+                return Ok((results, Some(enhanced)));
+            }
             Strategy::Fast => self.decoder.decode_with(img, Effort::Fast),
             Strategy::Hard => self.decoder.decode_with(img, Effort::Hard),
             Strategy::Inverted => self.decoder.decode_inverted(img, Effort::Hard),
@@ -180,7 +181,21 @@ impl Scanner {
             Strategy::InvertedBinarized => self
                 .decoder
                 .decode_inverted(&preprocess::full_pipeline(img), Effort::Hard),
+        }?;
+        Ok((results, None))
+    }
+
+    /// Decode a [`preprocess::linear_enhance`] output: 1D readers only, on one
+    /// row every [`row_step`](preprocess::linear::row_step) rows (the blur made
+    /// the others redundant). Points are returned in the coordinates of `enhanced`.
+    fn decode_linear(&self, enhanced: &GrayImage) -> Result<Vec<ScanResult>, ScanError> {
+        let step = preprocess::linear::row_step(enhanced.height());
+        let rows = preprocess::linear::sample_rows(enhanced, step);
+        let mut results = self.decoder.decode_rows(&rows)?;
+        for p in results.iter_mut().flat_map(|r| r.points.iter_mut()) {
+            p.y *= step as f32;
         }
+        Ok(results)
     }
 
     /// Convert a frame to grayscale and crop it to the ROI.

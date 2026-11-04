@@ -1,7 +1,8 @@
 //! Real-time scanning module.
 //!
 //! Provides stateful scanning for camera streams with:
-//! - Strategy rotation: fast path + one fallback strategy per frame
+//! - Strategy rotation: fast path + one fallback strategy per frame, the
+//!   fallbacks sharing CPU time
 //! - Optional adaptive frame throttling ([`throttle`])
 //! - De-duplication and multi-frame confirmation of 1D codes ([`tracker`])
 

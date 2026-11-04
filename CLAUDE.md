@@ -8,7 +8,7 @@ Guide pour travailler sur ce dépôt (humains comme agents IA).
 développement actuelles.** Concrètement, chaque changement :
 
 - passe **tous** les contrôles sans warning : `cargo fmt`, `cargo clippy -D warnings`
-  (lints du workspace dans `Cargo.toml`), `cargo test`, `npm run lint`, `npm run typecheck`,
+  (lints du workspace dans `Cargo.toml`), `cargo test`, `cargo doc` (`-D warnings`), `npm run lint`, `npm run typecheck`,
   les tests WASM et e2e (voir [Commandes](#commandes)) ;
 - est **testé** : un bug corrigé = un test qui échoue sans le correctif. Pas de test qui
   « saute » silencieusement : une fixture manquante est un échec ;
@@ -45,7 +45,7 @@ tests/fixtures/          Images de test versionnées (+ generate.py pour les ré
 
 Flux temps réel : caméra → `<video>` → WebGL2 (ROI, luma, réduction, 4 px/texel,
 relecture asynchrone) → Web Worker → mémoire WASM → `ScanSession` (passe rapide +
-1 stratégie de secours tournante, vérification 1D, confirmations, dé-duplication).
+1 stratégie de secours par frame, partage du temps CPU, vérification 1D, confirmations, dé-duplication).
 
 ## Commandes
 
@@ -59,6 +59,7 @@ npm run test:e2e                # Chromium headless + fausse caméra (ffmpeg, Pl
 
 cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --release
+RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace   # liens de doc (comme la CI)
 CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
   cargo test -p scanner-wasm --target wasm32-unknown-unknown --test web
 ```
@@ -103,9 +104,11 @@ version courante (utilisé pour la première publication).
 | Zone de silence exigée : 5 modules pour les formats fragiles, **2** pour les formats à checksum (Code 128, EAN-13, UPC-A) — les vraies étiquettes/boucles ont souvent bien moins que la norme (bord de la boucle à ~3 modules sur la fixture) | `decode/verify.rs` (`STRONG_QUIET_MODULES`) |
 | Gravure laser / éclairage inégal : stratégie `Linear` = lissage dans le sens des barres + seuillage local par ligne. Sortie **binaire** obligatoire (une sortie en niveaux de gris est re-seuillée par `HybridBinarizer` et le code est perdu). Deux échelles de fenêtre (`Fine`, `Coarse`) car la fenêtre idéale ≈ 6 modules et la taille des modules est inconnue | `preprocess/linear.rs`, fixture `real/cattle_ear_tag_code128.jpg` |
 | La vérification de zone de silence de `Linear` se fait sur l'image traitée (sur l'image brute, le dégradé d'éclairage ressemble à des barres) | `scanner.rs` (`run_strategy`) |
-| Rotation **collante** : une stratégie de secours qui vient de lire un code est gardée à la frame suivante, sinon la 2ᵉ lecture d'un code 1D arrive un cycle plus tard (12 → 6 frames sur la boucle) | `realtime/session.rs` (`scan_one`) |
+| Rotation **collante** : une stratégie de secours qui vient de lire un code est gardée à la frame suivante, sinon la 2ᵉ lecture d'un code 1D arrive un cycle plus tard (12 → 6 frames sur la boucle) | `realtime/session.rs` (`FallbackScheduler`) |
 | Micro QR lu par le lecteur QR de rxing et rapporté comme `qr_code` | `result.rs` |
 | Rotation des stratégies : une seule stratégie coûteuse par frame (×6,6 sur les frames vides) | `realtime/session.rs` |
+| Les stratégies de secours se partagent le **temps CPU**, pas les frames : sur une scène texturée `Hard` coûte ~6× `Linear` ; à une frame chacune, un téléphone lent (Galaxy A14, ~5 fps) ne relançait `Linear` que toutes les ~1,5 s. Premier cycle dans l'ordre de la liste ; aucune stratégie n'attend plus de 3 cycles (anti-famine) | `realtime/session.rs` (`FallbackScheduler`) |
+| `Linear` décode **une ligne sur `row_step`** (le flou vertical rend les autres redondantes), avec les lecteurs 1D seuls et **sans** le réessai à 90° de rxing : ce réessai n'a lieu que si la source de luminance sait tourner, d'où `PlanarYUVLuminanceSource` (pas de rotation) au lieu de `Luma8LuminanceSource`. 69 → 19 ms sur une frame texturée | `decode/rxing_backend.rs` (`decode_rows`), `scanner.rs` (`decode_linear`) |
 | Throttle adaptatif désactivé par le SDK (le worker gère déjà la contre-pression) | `packages/scanner-web/src/core.ts` |
 | Vue `frameBuffer()` invalidée à chaque croissance de la mémoire WASM : ne jamais la garder | `crates/scanner-wasm/src/lib.rs` |
 | Une seule frame en vol : on saute des frames au lieu de les empiler | `src/reader.ts` |

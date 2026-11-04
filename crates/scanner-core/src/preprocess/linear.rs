@@ -23,8 +23,12 @@
 //! the code again (measured on the ear-tag photo: grey output not found,
 //! binary output decoded).
 //!
-//! Vertical codes are handled by rxing's try-harder mode, which also scans
-//! the image rotated by 90°.
+//! Only roughly horizontal codes survive the row-wise threshold: vertical
+//! codes are left to the other strategies (rxing's try-harder mode also scans
+//! the image rotated by 90°).
+//!
+//! After the vertical blur, neighbouring rows are nearly identical, so the
+//! decoder only needs one row every [`row_step`] rows ([`sample_rows`]).
 
 use image::GrayImage;
 use std::collections::VecDeque;
@@ -52,15 +56,40 @@ pub fn linear_enhance(img: &GrayImage, scale: LinearScale) -> GrayImage {
     if w < 8 || h < 8 {
         return img.clone();
     }
-    // Smoothing along the bars: ~1/120 of the height. Larger radii start to
-    // blur tilted bars; smaller ones leave the engraving grain (both measured).
-    let smooth_radius = (h / 120).clamp(3, 8) as usize;
+    let smooth_radius = smooth_radius(h) as usize;
     let divisor = match scale {
         LinearScale::Fine => 64,
         LinearScale::Coarse => 30,
     };
     let window_radius = (w / divisor).clamp(8, 96) as usize;
     threshold_rows(&vertical_box_blur(img, smooth_radius), window_radius)
+}
+
+/// Radius of the vertical blur: ~1/120 of the height. Larger radii start to
+/// blur tilted bars; smaller ones leave the engraving grain (both measured).
+fn smooth_radius(height: u32) -> u32 {
+    (height / 120).clamp(3, 8)
+}
+
+/// Distance between the rows worth decoding in a [`linear_enhance`] output.
+///
+/// Each output row averages `2 × radius + 1` input rows, so rows `radius`
+/// apart still overlap by half: a code at least ~2 radii tall (7 px at 720p)
+/// is always crossed by a sampled row.
+pub fn row_step(height: u32) -> u32 {
+    smooth_radius(height)
+}
+
+/// Keep one row every `step` rows (row `i` of the output is row `i × step`).
+pub fn sample_rows(img: &GrayImage, step: u32) -> GrayImage {
+    let (w, h) = img.dimensions();
+    let step = step.max(1);
+    let rows = h.div_ceil(step);
+    let mut out = Vec::with_capacity((w * rows) as usize);
+    for row in img.as_raw().chunks_exact(w as usize).step_by(step as usize) {
+        out.extend_from_slice(row);
+    }
+    GrayImage::from_raw(w, rows, out).expect("sample_rows: exact size")
 }
 
 /// Box blur along columns, using a running sum per column.
@@ -186,6 +215,15 @@ mod tests {
         for scale in [LinearScale::Fine, LinearScale::Coarse] {
             assert!(linear_enhance(&img, scale).pixels().all(|p| p[0] == 255));
         }
+    }
+
+    #[test]
+    fn sample_rows_keeps_every_nth_row() {
+        let img = GrayImage::from_fn(4, 10, |_, y| Luma([y as u8]));
+        let out = sample_rows(&img, 3);
+        assert_eq!(out.dimensions(), (4, 4));
+        let rows: Vec<u8> = (0..4).map(|y| out.get_pixel(0, y)[0]).collect();
+        assert_eq!(rows, [0, 3, 6, 9]);
     }
 
     #[test]
