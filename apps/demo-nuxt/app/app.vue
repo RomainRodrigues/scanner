@@ -8,6 +8,9 @@ const presets: { label: string; formats?: BarcodeFormat[] }[] = [
   { label: 'Logistics', formats: ['code_128', 'code_39', 'itf', 'data_matrix'] },
 ];
 
+const { sdkVersion, commit, repository } = useRuntimeConfig().public;
+const shortCommit = commit.slice(0, 7);
+
 const preset = ref(0);
 const formats = computed(() => presets[preset.value]?.formats);
 const scanner = ref<{ start: () => Promise<void>; stop: () => Promise<void>; running: boolean } | null>(null);
@@ -98,6 +101,15 @@ async function copy(text: string) {
         </li>
       </ul>
     </section>
+    <footer>
+      <span>SDK v{{ sdkVersion }}</span>
+      <template v-if="shortCommit">
+        ·
+        <a :href="`https://github.com/${repository}/commit/${commit}`" target="_blank" rel="noopener">{{
+          shortCommit
+        }}</a>
+      </template>
+    </footer>
   </main>
 </template>
 
@@ -205,5 +217,15 @@ li b {
 li small {
   color: var(--dim);
   display: block;
+}
+footer {
+  text-align: center;
+  font:
+    12px ui-monospace,
+    monospace;
+  color: var(--dim);
+}
+footer a {
+  color: inherit;
 }
 </style>
