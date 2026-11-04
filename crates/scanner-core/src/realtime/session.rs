@@ -14,7 +14,7 @@
 //! reads a code (it is then kept while it keeps reading). The per-frame cost
 //! stays at roughly two decoder passes.
 //!
-//! The fallbacks share **CPU time**, not frames (see [`FallbackScheduler`]):
+//! The fallbacks share **CPU time**, not frames (see `FallbackScheduler`):
 //! on a textured scene `Hard` costs ~6× more than `Linear`, so with one
 //! frame each a slow phone would spend most of its time in the expensive
 //! strategies and run each cheap one only every ~1.5 s.
