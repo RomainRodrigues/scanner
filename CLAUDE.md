@@ -111,7 +111,7 @@ version courante (utilisé pour la première publication).
 | `Linear` décode **une ligne sur `row_step`** (le flou vertical rend les autres redondantes), avec les lecteurs 1D seuls et **sans** le réessai à 90° de rxing : ce réessai n'a lieu que si la source de luminance sait tourner, d'où `PlanarYUVLuminanceSource` (pas de rotation) au lieu de `Luma8LuminanceSource`. 69 → 19 ms sur une frame texturée | `decode/rxing_backend.rs` (`decode_rows`), `scanner.rs` (`decode_linear`) |
 | Throttle adaptatif désactivé par le SDK (le worker gère déjà la contre-pression) | `packages/scanner-web/src/core.ts` |
 | Vue `frameBuffer()` invalidée à chaque croissance de la mémoire WASM : ne jamais la garder | `crates/scanner-wasm/src/lib.rs` |
-| Une seule frame en vol : on saute des frames au lieu de les empiler | `src/reader.ts` |
+| Pipeline à deux étages **en parallèle** : le grab (GPU) de la frame N+1 pendant le décodage (worker) de la frame N, sinon le temps par frame est `grab + decode` (Galaxy A14 : ~55 + ~125 ms). Au plus un grab en cours et une frame en attente : on saute des frames au lieu de les empiler | `src/reader.ts` (`tick`) |
 | Trap WASM (panique Rust) = module dans un état indéfini → le worker est recréé | `src/worker.ts`, `src/engine.ts` |
 | Seules les erreurs du pipeline d'image (`GrabError`) déclenchent le repli WebGL → Canvas 2D | `src/reader.ts` |
 | Ligne 0 du framebuffer WebGL = haut de l'image (pas de flip) ; largeur de sortie multiple de 4 | `src/grabber.ts`, `src/geometry.ts` |

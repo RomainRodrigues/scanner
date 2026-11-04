@@ -128,6 +128,9 @@ for (const s of scenarios) {
       await reader.start();
       const codes = await Promise.race([detected, new Promise((r) => setTimeout(() => r(null), 8000))]);
       const elapsed = performance.now() - t0;
+      // Throughput: the reader keeps scanning (duplicates are filtered), and
+      // `stats.fps` is refreshed every second.
+      await new Promise((r) => setTimeout(r, 2200));
       const result = {
         codes,
         elapsed,
@@ -147,7 +150,8 @@ for (const s of scenarios) {
     const st = out.stats;
     const info =
       `${st.backend}${st.worker ? '+worker' : ''}${st.simd ? '+simd' : ''} ${st.frameWidth}×${st.frameHeight}, ` +
-      `first read ${out.elapsed.toFixed(0)} ms, decode ${st.decodeMs.toFixed(1)} ms, grab ${st.grabMs.toFixed(1)} ms`;
+      `first read ${out.elapsed.toFixed(0)} ms, ${st.fps.toFixed(1)} fps, decode ${st.decodeMs.toFixed(1)} ms, ` +
+      `grab ${st.grabMs.toFixed(1)} ms`;
     if (ok && centered) {
       console.log(`✓ ${s.name}: "${code.text}" (${code.format}) — ${info}`);
     } else {
