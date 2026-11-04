@@ -244,6 +244,66 @@ for (const s of scenarios) {
       failures++;
       console.log(`✗ ${line} (expected one camera opened, none left live, not running)`);
     }
+
+    // Hidden page: the camera is released, then reopened when visible again,
+    // without `stopped` / `started` events and with decoding resuming.
+    const bg = await page.evaluate(async () => {
+      const streams = [];
+      const gum = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async (c) => {
+        const s = await gum(c);
+        streams.push(s);
+        return s;
+      };
+      let hidden = false;
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        get: () => (hidden ? 'hidden' : 'visible'),
+      });
+      const setHidden = (h) => {
+        hidden = h;
+        document.dispatchEvent(new Event('visibilitychange'));
+      };
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const live = (s) => s.getTracks().some((t) => t.readyState === 'live');
+
+      const { BarcodeReader } = await import('/dist/index.js');
+      const host = document.createElement('div');
+      host.style.cssText = 'width:640px;height:360px';
+      document.body.prepend(host);
+      const reader = await BarcodeReader.create({ host, feedback: false });
+      const events = [];
+      reader.on('started', () => events.push('started'));
+      reader.on('stopped', () => events.push('stopped'));
+      await reader.start();
+      setHidden(true);
+      await sleep(300);
+      const whileHidden = { cameraLive: streams.some(live), running: reader.isRunning };
+      setHidden(false);
+      await sleep(2500);
+      const afterVisible = {
+        reopened: streams.length === 2 && live(streams[1]),
+        running: reader.isRunning,
+        fps: reader.stats.fps,
+      };
+      await reader.destroy();
+      return { whileHidden, afterVisible, events };
+    });
+    const bgOk =
+      !bg.whileHidden.cameraLive &&
+      bg.whileHidden.running &&
+      bg.afterVisible.reopened &&
+      bg.afterVisible.running &&
+      bg.afterVisible.fps > 0 &&
+      JSON.stringify(bg.events) === JSON.stringify(['started', 'stopped']);
+    const bgLine = `camera released while hidden: ${JSON.stringify(bg)}`;
+    if (bgOk) {
+      console.log(`✓ ${bgLine}`);
+    } else {
+      failures++;
+      console.log(`✗ ${bgLine}`);
+    }
   } finally {
     await browser.close();
   }

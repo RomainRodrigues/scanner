@@ -80,6 +80,12 @@ export interface CameraOptions {
   resolution?: CameraResolution;
   /** Remember the last selected camera in `localStorage`. Default: `true`. */
   rememberDevice?: boolean;
+  /**
+   * Release the camera while the page is hidden (tab in the background,
+   * screen locked) and reopen it when the page is visible again. The reader
+   * stays running in between. Default: `true`.
+   */
+  releaseWhenHidden?: boolean;
 }
 
 export interface OverlayOptions {

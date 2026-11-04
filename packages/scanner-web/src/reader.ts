@@ -71,6 +71,9 @@ export class BarcodeReader {
   private lifecycle = 0;
   /** Consecutive failed frames: only the first error of a streak is reported. */
   private failures = 0;
+  /** Camera released while the page is hidden (see `onVisibilityChange`). */
+  private suspended = false;
+  private readonly onVisibility = () => void this.onVisibilityChange();
   private torchOn = false;
   private buffers: ArrayBuffer[] = [];
   private frameHandle = 0;
@@ -87,6 +90,9 @@ export class BarcodeReader {
     this.preview.setRegion(this.region);
     this.grabber = createGrabber(options.processing?.backend);
     this.feedback = new Feedback(options.feedback ?? {});
+    if (options.camera?.releaseWhenHidden !== false && typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.onVisibility);
+    }
   }
 
   /** Load the engine (WebAssembly, in a Web Worker) and build the preview inside `options.host`. */
@@ -150,31 +156,87 @@ export class BarcodeReader {
     const cancelled = () => lifecycle !== this.lifecycle || this.destroyed;
     // Synchronous, before the first await: must run inside the user gesture.
     this.feedback.unlock();
+    if (!(await this.acquireCamera(cancelled))) return;
+
+    this.running = true;
+    this.suspended = false;
+    this.paused = false;
+    this.failures = 0;
+    this.perf.since = performance.now();
+    this.perf.frames = 0;
+    this.emit('started', undefined);
+    this.schedule();
+  }
+
+  /** Open the camera into the preview. `false` if `cancelled()` became true meanwhile. */
+  private async acquireCamera(cancelled: () => boolean): Promise<boolean> {
     const stream = await openCamera(this.options.camera);
     if (cancelled()) {
       // stop() or destroy() was called while the camera was opening.
       stream.getTracks().forEach((t) => t.stop());
-      return;
+      return false;
     }
     this.stream = stream;
     const video = this.preview.video;
     video.srcObject = stream;
     await video.play().catch(() => undefined);
     await waitForVideo(video);
-    if (cancelled()) return; // stop() already released `this.stream`.
+    if (cancelled()) return false; // stop() already released `this.stream`.
 
     const track = this.track();
     if (this.options.camera?.rememberDevice !== false) rememberCamera(track?.getSettings().deviceId);
     this.torchOn = false;
     await this.refreshButtons();
-    if (cancelled()) return;
+    return !cancelled();
+  }
 
-    this.running = true;
-    this.paused = false;
+  private releaseCamera(): void {
+    this.cancelSchedule();
+    this.stream?.getTracks().forEach((t) => t.stop());
+    this.stream = null;
+    this.preview.video.srcObject = null;
+    this.preview.setDetections([]);
+    this.torchOn = false;
+  }
+
+  /**
+   * Release the camera while the page is hidden, reopen it when it comes back.
+   *
+   * Decoding already stops on its own in a hidden page (no video frame
+   * callbacks), but the camera stayed on: camera indicator lit, battery
+   * drained, while the user cannot see the page. The reader stays "running"
+   * through the suspension (no `stopped` / `started` events), so the host
+   * application's UI state does not change. Opt out with
+   * `camera.releaseWhenHidden: false`.
+   */
+  private async onVisibilityChange(): Promise<void> {
+    if (document.hidden) {
+      if (this.running && !this.suspended) {
+        this.suspended = true;
+        this.releaseCamera();
+      }
+      return;
+    }
+    if (!this.suspended || !this.running) return;
+    this.suspended = false;
+    const lifecycle = this.lifecycle;
+    const cancelled = () => lifecycle !== this.lifecycle || this.destroyed || document.hidden;
+    try {
+      if (!(await this.acquireCamera(cancelled))) {
+        // Hidden again while reopening: wait for the next visibility change.
+        if (lifecycle === this.lifecycle && !this.destroyed) {
+          this.suspended = true;
+          this.releaseCamera();
+        }
+        return;
+      }
+    } catch (err) {
+      // Camera taken by another app, permission revoked…: stop for good.
+      this.emit('error', err instanceof Error ? err : new Error(String(err)));
+      await this.stop();
+      return;
+    }
     this.failures = 0;
-    this.perf.since = performance.now();
-    this.perf.frames = 0;
-    this.emit('started', undefined);
     this.schedule();
   }
 
@@ -184,11 +246,8 @@ export class BarcodeReader {
     if (!this.running && !this.stream) return;
     const wasRunning = this.running;
     this.running = false;
-    this.cancelSchedule();
-    this.stream?.getTracks().forEach((t) => t.stop());
-    this.stream = null;
-    this.preview.video.srcObject = null;
-    this.preview.setDetections([]);
+    this.suspended = false;
+    this.releaseCamera();
     if (wasRunning) this.emit('stopped', undefined);
   }
 
@@ -206,6 +265,7 @@ export class BarcodeReader {
     if (this.destroyed) return;
     await this.stop();
     this.destroyed = true;
+    document.removeEventListener('visibilitychange', this.onVisibility);
     this.grabber.destroy();
     this.preview.destroy();
     this.feedback.destroy();
