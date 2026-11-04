@@ -8,7 +8,7 @@
 //!   UPC-A/E, ITF and Codabar, decoded by [rxing](https://crates.io/crates/rxing)
 //! - Fallback strategies for hard images: try-harder, inversion, CLAHE,
 //!   Sauvola binarization, rotations ([`Strategy`])
-//! - Real-time [`ScanSession`]: one fallback strategy per frame (rotating),
+//! - Real-time [`ScanSession`]: one fallback strategy per frame (sharing CPU time),
 //!   de-duplication, multi-frame confirmation of 1D codes
 //! - Rejection of 1D false positives without a quiet zone ([`decode::verify`])
 //! - Region of interest; result points always in full-frame coordinates

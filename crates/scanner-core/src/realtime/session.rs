@@ -11,9 +11,13 @@
 //! would make every *empty* frame — the common case — pay for the whole
 //! cascade. Instead, each frame runs the fast path plus **one** fallback
 //! strategy, and the fallback changes on every frame until one of them
-//! reads a code (it is then kept while it keeps reading). At 30 fps all
-//! 7 strategies are covered within ~250 ms while the per-frame cost stays at
-//! roughly two decoder passes.
+//! reads a code (it is then kept while it keeps reading). The per-frame cost
+//! stays at roughly two decoder passes.
+//!
+//! The fallbacks share **CPU time**, not frames (see [`FallbackScheduler`]):
+//! on a textured scene `Hard` costs ~6× more than `Linear`, so with one
+//! frame each a slow phone would spend most of its time in the expensive
+//! strategies and run each cheap one only every ~1.5 s.
 //!
 //! # Example
 //! ```no_run
@@ -59,8 +63,7 @@ pub struct SessionStats {
 /// Stateful real-time scan session.
 pub struct ScanSession {
     scanner: Scanner,
-    fallbacks: Vec<Strategy>,
-    next_fallback: usize,
+    fallbacks: FallbackScheduler,
     throttle: Option<AdaptiveThrottle>,
     tracker: FrameTracker,
     stats: SessionStats,
@@ -73,12 +76,11 @@ impl ScanSession {
         let throttle = config.adaptive_throttle.then(|| AdaptiveThrottle::new(15));
         let tracker = FrameTracker::new(config.dedup_cooldown_ms, config.linear_confirmations);
         let scanner = Scanner::new(config);
-        let fallbacks = scanner.fallback_strategies();
+        let fallbacks = FallbackScheduler::new(scanner.fallback_strategies());
 
         Self {
             scanner,
             fallbacks,
-            next_fallback: 0,
             throttle,
             tracker,
             stats: SessionStats::default(),
@@ -151,21 +153,19 @@ impl ScanSession {
         }
     }
 
-    /// Fast path + one rotating fallback strategy.
+    /// Fast path + one fallback strategy chosen by the scheduler.
     fn scan_one(&mut self, frame: &Frame<'_>) -> Result<Vec<ScanResult>, ScanError> {
+        let t0 = Instant::now();
         let (img, origin) = self.scanner.prepare(frame);
 
         let mut result = self.scanner.run_strategy(&img, Strategy::Fast);
-        if result.is_err() && !self.fallbacks.is_empty() {
-            let strategy = self.fallbacks[self.next_fallback % self.fallbacks.len()];
-            result = self.scanner.run_strategy(&img, strategy);
-            // Sticky rotation: a strategy that just read a code is kept for the
-            // next frame. 1D codes need several agreeing reads within ~1 s, and
-            // the strategy that reads a hard code often is the only one that
-            // can: rotating away would delay the confirmation by a whole cycle
-            // (measured on the ear-tag camera ROI test: 12 frames → 6).
-            if result.is_err() {
-                self.next_fallback = self.next_fallback.wrapping_add(1);
+        if result.is_err() {
+            if let Some((index, strategy)) = self.fallbacks.next() {
+                result = self.scanner.run_strategy(&img, strategy);
+                // Charged with the whole frame (fast path included): that is
+                // the time the fallback costs per scanned frame.
+                self.fallbacks
+                    .record(index, t0.elapsed().as_secs_f64(), result.is_ok());
             }
         }
         result.map(|r| offset_results(r, origin))
@@ -188,7 +188,7 @@ impl ScanSession {
         if let Some(t) = &mut self.throttle {
             t.reset();
         }
-        self.next_fallback = 0;
+        self.fallbacks.reset();
         self.last_detections.clear();
         self.stats = SessionStats::default();
     }
@@ -208,10 +208,144 @@ impl ScanSession {
     }
 }
 
+/// Picks the fallback strategy of each frame so that the strategies get an
+/// equal share of **CPU time** rather than an equal number of frames.
+///
+/// Each strategy accumulates the time it cost; the one that has used the
+/// least runs next (ties: list order, so the first cycle runs every strategy
+/// once, in order). Measured on the ear-tag fixture over a textured
+/// background (x86, native): the read needs about the same number of frames
+/// but ~40 % less CPU time, i.e. ~40 % less wall time on a CPU-bound phone.
+///
+/// Two rules on top:
+/// - **Sticky**: a strategy that just read a code runs again on the next
+///   frame. 1D codes need several agreeing reads within ~1 s, and the
+///   strategy that reads a hard code is often the only one that can:
+///   rotating away would delay the confirmation by a whole cycle (measured
+///   on the ear-tag camera ROI test: 12 frames → 6).
+/// - **No starvation**: a strategy that has not run for
+///   [`MAX_WAIT_CYCLES`] × (number of strategies) frames runs next, whatever
+///   it costs. Without it, a strategy that is very expensive on the current
+///   scene would almost never run.
+#[derive(Debug)]
+struct FallbackScheduler {
+    strategies: Vec<Strategy>,
+    /// CPU time charged to each strategy, in seconds (relative: the minimum
+    /// is subtracted after every frame).
+    spent: Vec<f64>,
+    /// Frames since each strategy last ran.
+    waiting: Vec<u32>,
+    /// Strategy that read a code on the previous frame.
+    sticky: Option<usize>,
+}
+
+/// See [`FallbackScheduler`]: with 7 strategies, each runs at least every 21 frames.
+const MAX_WAIT_CYCLES: u32 = 3;
+
+impl FallbackScheduler {
+    fn new(strategies: Vec<Strategy>) -> Self {
+        let n = strategies.len();
+        Self {
+            strategies,
+            spent: vec![0.0; n],
+            waiting: vec![0; n],
+            sticky: None,
+        }
+    }
+
+    /// Strategy to run on this frame, with its index (for [`Self::record`]).
+    fn next(&self) -> Option<(usize, Strategy)> {
+        let max_wait = MAX_WAIT_CYCLES * self.strategies.len() as u32;
+        let index = self
+            .sticky
+            .or_else(|| self.waiting.iter().position(|&w| w >= max_wait))
+            .or_else(|| {
+                // `min_by` keeps the first of equal elements: list order on ties.
+                (0..self.spent.len()).min_by(|&a, &b| self.spent[a].total_cmp(&self.spent[b]))
+            })?;
+        Some((index, self.strategies[index]))
+    }
+
+    /// Charge `seconds` to strategy `index`, which read a code if `found`.
+    fn record(&mut self, index: usize, seconds: f64, found: bool) {
+        self.spent[index] += seconds.max(0.0);
+        let min = self.spent.iter().copied().fold(f64::INFINITY, f64::min);
+        for s in &mut self.spent {
+            *s -= min;
+        }
+        for (i, w) in self.waiting.iter_mut().enumerate() {
+            *w = if i == index { 0 } else { w.saturating_add(1) };
+        }
+        self.sticky = found.then_some(index);
+    }
+
+    fn reset(&mut self) {
+        self.spent.fill(0.0);
+        self.waiting.fill(0);
+        self.sticky = None;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::config::ScannerConfig;
+
+    fn scheduler() -> FallbackScheduler {
+        FallbackScheduler::new(vec![Strategy::Hard, Strategy::Inverted, Strategy::Contrast])
+    }
+
+    /// Run `frames` frames where strategy `i` costs `cost[i]` seconds; returns the run order.
+    fn simulate(s: &mut FallbackScheduler, cost: &[f64], frames: usize) -> Vec<usize> {
+        (0..frames)
+            .map(|_| {
+                let (i, _) = s.next().expect("strategies");
+                s.record(i, cost[i], false);
+                i
+            })
+            .collect()
+    }
+
+    #[test]
+    fn scheduler_first_cycle_follows_list_order() {
+        let order = simulate(&mut scheduler(), &[0.1, 0.1, 0.1], 6);
+        assert_eq!(order, [0, 1, 2, 0, 1, 2]);
+    }
+
+    #[test]
+    fn scheduler_shares_cpu_time() {
+        // Strategy 2 is 4× cheaper: it runs ~4× more often.
+        let order = simulate(&mut scheduler(), &[0.4, 0.4, 0.1], 60);
+        let runs = |i| order.iter().filter(|&&o| o == i).count();
+        assert!(runs(2) >= 3 * runs(0), "{order:?}");
+        assert!(runs(0) >= 5, "{order:?}");
+    }
+
+    #[test]
+    fn scheduler_never_starves_an_expensive_strategy() {
+        let order = simulate(&mut scheduler(), &[100.0, 0.001, 0.001], 40);
+        let gaps: Vec<usize> = order
+            .iter()
+            .enumerate()
+            .filter(|(_, &o)| o == 0)
+            .map(|(i, _)| i)
+            .collect::<Vec<_>>()
+            .windows(2)
+            .map(|w| w[1] - w[0])
+            .collect();
+        assert!(!gaps.is_empty(), "{order:?}");
+        assert!(gaps.iter().all(|&g| g <= 10), "{order:?}");
+    }
+
+    #[test]
+    fn scheduler_keeps_a_strategy_that_reads() {
+        let mut s = scheduler();
+        let (i, _) = s.next().expect("strategies");
+        s.record(i, 1.0, true);
+        assert_eq!(s.next().map(|(j, _)| j), Some(i));
+        s.record(i, 1.0, false);
+        assert_ne!(s.next().map(|(j, _)| j), Some(i));
+    }
 
     #[test]
     fn test_session_returns_none_on_blank_frame() {

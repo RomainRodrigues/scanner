@@ -104,7 +104,7 @@ camera ─▶ <video> ─▶ WebGL2: crop to ROI · RGB→luma · box-filter dow
                          ▼
                 Web Worker ─▶ WASM memory (no extra copy) ─▶ Rust engine
                                                              │ fast pass every frame
-                                                             │ + 1 rotating fallback per frame
+                                                             │ + 1 fallback per frame (CPU-time share)
                                                              │   (try-harder, inverted, CLAHE, Sauvola)
                                                              │ 1D quiet-zone check · multi-frame confirmation · de-dup
                          ◀────────────── new codes + live detections
