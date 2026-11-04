@@ -9,7 +9,7 @@
 #![allow(clippy::unwrap_used)]
 
 use rxing::{BarcodeFormat, MultiFormatWriter, Writer};
-use scanner_wasm::{WasmScanSession, WasmScanner};
+use scanner_wasm::{WasmFrameDecoder, WasmScanSession, WasmScanner};
 use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
 
@@ -75,5 +75,28 @@ fn session_frame_buffer_roundtrip() {
     assert_eq!(
         first_text(&session.last_detections()).as_deref(),
         Some("zero copy")
+    );
+}
+
+/// Parallel decoding path: the session plans, a decoder (normally in another
+/// Web Worker) decodes, the report goes back through JS values to `commit`.
+#[wasm_bindgen_test]
+fn plan_decode_commit_roundtrip() {
+    let frame = qr_frame("parallel", 200);
+    let mut session = WasmScanSession::new(None);
+    let mut decoder = WasmFrameDecoder::new(None);
+    for expected_new in [true, false] {
+        let plan = session.plan();
+        decoder.frame_buffer(frame.len()).copy_from(&frame);
+        let report = decoder
+            .decode_frame_buffer(200, 200, "luma", plan)
+            .map_err(JsValue::from)
+            .unwrap();
+        let fresh = session.commit(report);
+        assert_eq!(!fresh.is_null(), expected_new);
+    }
+    assert_eq!(
+        first_text(&session.last_detections()).as_deref(),
+        Some("parallel")
     );
 }
