@@ -108,7 +108,9 @@ test('only a built-in BarcodeDetector counts, not a JavaScript polyfill', async 
   assert.equal(isBuiltIn(Map), true);
   assert.equal(isBuiltIn(fakeApi(ALL)), false);
   assert.equal(
-    isBuiltIn(function BarcodeDetector() {}),
+    isBuiltIn(function BarcodeDetector() {
+      return undefined;
+    }),
     false,
   );
   // Default lookup on globalThis: a polyfill installed there is ignored.
