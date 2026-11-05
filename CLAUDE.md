@@ -164,8 +164,9 @@ version courante (utilisé pour la première publication).
   les valeurs attendues.
 - Les cas les plus durs sont **synthétisés dans les tests** (encodeurs rxing, flou,
   bruit, textures) : c'est déterministe et ça couvre chaque format.
-- `tests/fixtures/real/` contient les **vraies photos** (une pour l'instant : boucle
-  bovine, Code 128 gravé au laser). Chaque photo a sa valeur attendue et est testée en
+- `tests/fixtures/real/` contient les **vraies photos** : boucle bovine (Code 128
+  gravé au laser) et étiquette d'aliment (Code 39 dans l'ombre du téléphone, lu
+  seulement par `Linear` sur la photo entière). Chaque photo a sa valeur attendue et est testée en
   scan statique, en session et telle que la voit la caméra du SDK (recadrage ROI), plus
   un scénario e2e. Toute photo qui échoue chez un utilisateur doit finir ici.
 - Ce qui manque encore : davantage de vraies photos (reflets, codes abîmés, angles).
