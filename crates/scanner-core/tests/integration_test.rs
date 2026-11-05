@@ -167,22 +167,31 @@ fn decodes_feed_label_code39() {
     assert_eq!(results[0], ("025925".to_string(), BarcodeFormat::Code39));
 }
 
-/// The highlight of that Code 39 spans the symbol: rxing's end point landed
-/// at 256 px for a code spanning 201 → 516 px (bounding box from zxing-cpp),
-/// so the overlay covered ~15 % of it.
+/// The highlight of that Code 39 is the box of the symbol: bars over x
+/// 202 → 509 and y 470 → 558 (measured on the pixels; zxing-cpp's box is
+/// shorter, it spans the rows it decoded). rxing's end point landed at 256 px,
+/// so the highlight covered ~15 % of the code, as a thin bar at the scan row.
 #[test]
 fn feed_label_code39_points_span_the_symbol() {
     let path = fixture("real/feed_label_code39.jpg");
     let results = Scanner::new(ScannerConfig::image_file())
         .scan_file(path.to_str().expect("utf-8 path"))
         .expect("feed label Code 39");
-    let xs: Vec<f32> = results[0].points.iter().map(|p| p.x).collect();
-    let (min, max) = xs
-        .iter()
-        .fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
+    let pts = &results[0].points;
+    let range = |v: Vec<f32>| {
+        v.iter()
+            .fold((f32::MAX, f32::MIN), |(a, b), &x| (a.min(x), b.max(x)))
+    };
+    let (x0, x1) = range(pts.iter().map(|p| p.x).collect());
+    let (y0, y1) = range(pts.iter().map(|p| p.y).collect());
+    assert_eq!(pts.len(), 4, "{pts:?}");
     assert!(
-        (min - 201.0).abs() <= 6.0 && (max - 516.0).abs() <= 6.0,
-        "points {min}..{max}, symbol 201..516"
+        (x0 - 202.0).abs() <= 6.0 && (x1 - 509.0).abs() <= 6.0,
+        "x {x0}..{x1}, symbol 202..509"
+    );
+    assert!(
+        (y0 - 470.0).abs() <= 4.0 && (y1 - 558.0).abs() <= 4.0,
+        "y {y0}..{y1}, symbol 470..558"
     );
 }
 

@@ -149,11 +149,11 @@ impl Scanner {
             .into_iter()
             .filter(|r| verify::plausible_linear(reference, r))
             .collect();
-        // Code 39 / Codabar: rxing's points do not mark the symbol ends, which
-        // the overlay draws. Measure them on the decoded image.
+        // 1D codes: replace the two scan-line points by the box of the symbol,
+        // which the overlay draws (see `decode/extent.rs`).
         let inverted = matches!(strategy, Strategy::Inverted | Strategy::InvertedBinarized);
         for r in &mut results {
-            extent::refine_line_ends(reference, r, inverted);
+            extent::refine_linear_box(reference, r, inverted);
         }
         if results.is_empty() {
             Err(ScanError::NotFound)

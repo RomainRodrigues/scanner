@@ -181,7 +181,8 @@ function drawPolygon(ctx: CanvasRenderingContext2D, pts: Point[]): void {
   if (!first) return;
   ctx.beginPath();
   if (pts.length === 2 && second) {
-    // 1D codes report the two ends of the scan line: draw a thick bar.
+    // Fallback for a 1D code whose box could not be measured: the two ends
+    // of the scan line, drawn as a thick bar.
     ctx.save();
     ctx.lineWidth = 10;
     ctx.globalAlpha *= 0.6;

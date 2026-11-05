@@ -162,62 +162,86 @@ fn no_false_positives_on_barcode_like_textures() {
     );
 }
 
-/// The overlay draws a 1D code as a bar between its two points, so they must
-/// be the ends of the symbol. rxing's Code 39 and Codabar points are not
-/// (see `decode/extent.rs`); they are measured on the image instead. Checked
-/// upright, upside down and rotated by 90° (other scan paths in rxing).
+/// The overlay draws a 1D code as the polygon of its points, which must be
+/// the box of the symbol: all its bars, whatever row decoded it (a thin bar
+/// at the scan line jumped up and down from frame to frame). rxing's Code 39
+/// and Codabar end points are wrong as well (see `decode/extent.rs`).
+/// Checked for every 1D format, upright, upside down and rotated by 90°
+/// (other scan paths in rxing).
 #[test]
-fn code39_and_codabar_points_are_the_symbol_ends() {
+fn linear_codes_points_are_the_symbol_box() {
     use scanner_core::{Scanner, ScannerConfig};
     let scanner = Scanner::new(ScannerConfig::image_file());
-    for (format, ours, content) in [
-        (RxFormat::CODE_39, BarcodeFormat::Code39, "SCAN-39"),
-        (RxFormat::CODABAR, BarcodeFormat::Codabar, "A123456B"),
-    ] {
+    let cases = [
+        (RxFormat::UPC_E, "01234565", BarcodeFormat::UpcE),
+        (RxFormat::EAN_8, "96385074", BarcodeFormat::Ean8),
+        (RxFormat::EAN_13, "5901234123457", BarcodeFormat::Ean13),
+        (RxFormat::UPC_A, "036000291452", BarcodeFormat::UpcA),
+        (RxFormat::CODE_128, "SCANNER-128", BarcodeFormat::Code128),
+        (RxFormat::CODE_39, "SCAN-39", BarcodeFormat::Code39),
+        (RxFormat::CODE_93, "CODE93", BarcodeFormat::Code93),
+        (RxFormat::ITF, "12345678", BarcodeFormat::Itf),
+        (RxFormat::CODABAR, "A123456B", BarcodeFormat::Codabar),
+    ];
+    let mut failures = vec![];
+    for (format, content, ours) in cases {
         let px = 3;
         let m = MultiFormatWriter
             .encode(content, &format, 0, 0)
             .expect("encode");
         // The encoder's matrix includes its own margins: the symbol spans
-        // its first to its last bar column (placed as in `frame`).
+        // its first to its last bar column (placed as in `frame`), over the
+        // 160 rows `frame` draws.
         let bar_cols: Vec<u32> = (0..m.getWidth()).filter(|&x| m.get(x, 0)).collect();
         let ox = (640 - m.getWidth() * px) / 2;
         let x0 = (ox + bar_cols[0] * px) as f32;
         let x1 = (ox + (bar_cols[bar_cols.len() - 1] + 1) * px) as f32;
+        let (y0, y1) = (160.0, 320.0);
         let upright = frame(format, content, px);
+        // (name, image, expected box x0, x1, y0, y1)
         let views = [
-            ("upright", upright.clone(), (x0, x1), false),
+            ("upright", upright.clone(), (x0, x1, y0, y1)),
             (
                 "upside down",
                 image::imageops::rotate180(&upright),
-                (640.0 - x1, 640.0 - x0),
-                false,
+                (640.0 - x1, 640.0 - x0, 480.0 - y1, 480.0 - y0),
             ),
+            // rotate90: (x, y) → (479 - y, x)
             (
                 "rotated 90°",
                 image::imageops::rotate90(&upright),
-                (x0, x1),
-                true,
+                (480.0 - y1, 480.0 - y0, x0, x1),
             ),
         ];
-        for (name, img, (lo, hi), vertical) in views {
-            let results = scanner
-                .scan_frame(img.as_raw(), img.width(), img.height(), PixelFormat::Luma)
-                .unwrap_or_else(|e| panic!("{ours:?} {name}: {e}"));
+        for (name, img, (ex0, ex1, ey0, ey1)) in views {
+            let Ok(results) =
+                scanner.scan_frame(img.as_raw(), img.width(), img.height(), PixelFormat::Luma)
+            else {
+                failures.push(format!("{ours:?} {name}: not decoded"));
+                continue;
+            };
             let r = &results[0];
-            assert_eq!(r.format, ours, "{name}");
-            let along: Vec<f32> = r
-                .points
-                .iter()
-                .map(|p| if vertical { p.y } else { p.x })
-                .collect();
-            let (min, max) = along
-                .iter()
-                .fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
-            assert!(
-                (min - lo).abs() <= 3.0 && (max - hi).abs() <= 3.0,
-                "{ours:?} {name}: points {min}..{max}, symbol {lo}..{hi}"
-            );
+            let fold = |f: fn(&scanner_core::Point) -> f32| {
+                r.points
+                    .iter()
+                    .map(f)
+                    .fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(v), b.max(v)))
+            };
+            let ((bx0, bx1), (by0, by1)) = (fold(|p| p.x), fold(|p| p.y));
+            // Ends within one module; height within a few pixels of blur.
+            let ok = r.format == ours
+                && r.points.len() == 4
+                && (bx0 - ex0).abs() <= 3.5
+                && (bx1 - ex1).abs() <= 3.5
+                && (by0 - ey0).abs() <= 3.5
+                && (by1 - ey1).abs() <= 3.5;
+            if !ok {
+                failures.push(format!(
+                    "{ours:?} {name}: box x {bx0}..{bx1} y {by0}..{by1}, symbol x {ex0}..{ex1} y {ey0}..{ey1} ({} points)",
+                    r.points.len()
+                ));
+            }
         }
     }
+    assert!(failures.is_empty(), "wrong boxes:\n{}", failures.join("\n"));
 }

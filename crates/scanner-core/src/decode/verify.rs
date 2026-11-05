@@ -26,13 +26,13 @@ const MIN_VISIBLE_MODULES: f32 = 3.0;
 /// Symbol geometry, in modules: total width, and how far inside the symbol
 /// rxing places the first and last result points (they sit in the middle of
 /// the start / stop patterns, which differ per symbology).
-struct Geometry {
-    modules: f32,
-    inner_start: f32,
-    inner_end: f32,
+pub(crate) struct Geometry {
+    pub(crate) modules: f32,
+    pub(crate) inner_start: f32,
+    pub(crate) inner_end: f32,
 }
 
-fn geometry(format: BarcodeFormat, text_len: usize) -> Option<Geometry> {
+pub(crate) fn geometry(format: BarcodeFormat, text_len: usize) -> Option<Geometry> {
     let n = text_len as f32;
     let g = |modules, inner_start, inner_end| Geometry {
         modules,
