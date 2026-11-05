@@ -107,9 +107,24 @@ export class NativeDetector {
   }
 }
 
+/**
+ * The browser's own `BarcodeDetector`, if any. Feature detection only (no
+ * list of browsers or devices): any browser that ships the API is used.
+ *
+ * Polyfills are rejected: packages such as `barcode-detector` install a
+ * `BarcodeDetector` that runs ZXing in WebAssembly on the main thread,
+ * slower than this SDK's own engine in its workers. A built-in class
+ * stringifies as `function BarcodeDetector() { [native code] }`.
+ */
 function nativeApi(): BarcodeDetectorClass | undefined {
   const api: unknown = Reflect.get(globalThis, 'BarcodeDetector');
-  return typeof api === 'function' ? (api as BarcodeDetectorClass) : undefined;
+  if (typeof api !== 'function' || !isBuiltIn(api)) return undefined;
+  return api as BarcodeDetectorClass;
+}
+
+/** `true` for a function implemented by the browser, not in JavaScript. */
+export function isBuiltIn(fn: object): boolean {
+  return /\{\s*\[native code\]\s*\}\s*$/.test(Function.prototype.toString.call(fn));
 }
 
 function center(points: readonly Point[]): Point {

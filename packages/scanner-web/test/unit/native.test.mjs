@@ -1,7 +1,7 @@
 // NativeDetector with a fake `BarcodeDetector` (Node has no native one).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { NativeDetector } from '../../dist/native.js';
+import { NativeDetector, isBuiltIn } from '../../dist/native.js';
 
 /** A fake `BarcodeDetector` class supporting `supported`, returning `codes`. */
 function fakeApi(supported, codes = []) {
@@ -101,4 +101,21 @@ test('detect propagates native failures', async () => {
   };
   const det = await NativeDetector.create(['qr_code'], api);
   await assert.rejects(det.detect({}, { x: 0, y: 0, width: 10, height: 10 }), /unavailable/);
+});
+
+test('only a built-in BarcodeDetector counts, not a JavaScript polyfill', async () => {
+  assert.equal(isBuiltIn(Math.max), true);
+  assert.equal(isBuiltIn(Map), true);
+  assert.equal(isBuiltIn(fakeApi(ALL)), false);
+  assert.equal(
+    isBuiltIn(function BarcodeDetector() {}),
+    false,
+  );
+  // Default lookup on globalThis: a polyfill installed there is ignored.
+  globalThis.BarcodeDetector = fakeApi(ALL);
+  try {
+    assert.equal(await NativeDetector.create(['qr_code']), undefined);
+  } finally {
+    delete globalThis.BarcodeDetector;
+  }
 });

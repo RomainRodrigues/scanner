@@ -66,7 +66,7 @@ function installFakeDetector({ mode, code }) {
     if (message?.type === 'decode') window.__engineFrames++;
     return post.call(this, message, transfer);
   };
-  window.BarcodeDetector = class {
+  const Fake = class {
     static async getSupportedFormats() {
       return ['aztec', 'code_128', 'code_39', 'code_93', 'codabar', 'data_matrix', 'ean_13', 'ean_8'].concat([
         'itf',
@@ -91,6 +91,12 @@ function installFakeDetector({ mode, code }) {
       return [{ rawValue: code.text, format: code.format, cornerPoints }];
     }
   };
+  // The SDK ignores JavaScript polyfills (their source is visible to
+  // `Function.prototype.toString`); a bound function prints as
+  // `[native code]`, like the browser's own class.
+  const BarcodeDetector = Fake.bind(null);
+  BarcodeDetector.getSupportedFormats = Fake.getSupportedFormats;
+  window.BarcodeDetector = BarcodeDetector;
 }
 
 const scenarios = [

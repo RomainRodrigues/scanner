@@ -148,7 +148,10 @@ overlay (ROI mask, highlights, torch / camera buttons) · beep · vibration
   same multi-frame confirmation and de-duplication. It is used only when it
   supports every requested format (`micro_qr`, which it lacks, is then read
   by the fallbacks), and dropped for the engine alone if it ever fails.
-  Safari, Firefox and Chrome on Windows / Linux do not have it: nothing changes there.
+  Detection is by feature, not by browser: any browser that ships the API
+  gets it, but a JavaScript polyfill of `BarcodeDetector` is ignored (it
+  would only be a slower engine on the main thread). Safari, Firefox and
+  Chrome on Windows / Linux do not have it today: nothing changes there.
 
 ## Browser support
 
