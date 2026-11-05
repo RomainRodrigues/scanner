@@ -171,7 +171,10 @@ const scenarios = [
     fake: { mode: 'miss' },
     expect: '025925',
     minNativeCalls: 1,
-    // …but only from time to time: most frames are native only.
+    // …but only from time to time while nothing is found: most frames are
+    // native only. (Once the engine sees the code it decodes every frame, for
+    // the confirmation and the highlights: only the frames before the first
+    // detection are compared.)
     maxEngineShare: 1 / 3,
     native: true,
     options: { processing: { nativeDetector: 'auto' } },
@@ -235,9 +238,11 @@ for (const s of scenarios) {
       const reader = await BarcodeReader.create({ host, feedback: false, ...options });
       const t0 = performance.now();
       let nativeCallsAtDetection = null;
+      let engineFramesAtDetection = null;
       const detected = new Promise((ok) =>
         reader.on('detected', (codes) => {
           nativeCallsAtDetection ??= window.__nativeCalls ?? null;
+          engineFramesAtDetection ??= window.__engineFrames ?? null;
           ok(codes);
         }),
       );
@@ -255,6 +260,7 @@ for (const s of scenarios) {
         nativeCallsAtDetection,
         nativeCalls: window.__nativeCalls ?? null,
         engineFrames: window.__engineFrames ?? null,
+        engineFramesAtDetection,
       };
       await reader.destroy();
       return result;
@@ -274,11 +280,13 @@ for (const s of scenarios) {
       ((s.minNativeCalls === undefined || out.nativeCallsAtDetection >= s.minNativeCalls) &&
         (s.maxNativeCalls === undefined || out.nativeCalls <= s.maxNativeCalls) &&
         (s.maxEngineFrames === undefined || out.engineFrames <= s.maxEngineFrames) &&
-        (s.maxEngineShare === undefined || out.engineFrames <= out.nativeCalls * s.maxEngineShare) &&
+        (s.maxEngineShare === undefined ||
+          out.engineFramesAtDetection <= out.nativeCallsAtDetection * s.maxEngineShare) &&
         st.native === s.native);
     const info =
       (s.fake
-        ? `native calls ${out.nativeCallsAtDetection}/${out.nativeCalls}, engine frames ${out.engineFrames}, ` +
+        ? `native calls ${out.nativeCallsAtDetection}/${out.nativeCalls}, ` +
+          `engine frames ${out.engineFramesAtDetection}/${out.engineFrames}, ` +
           `native ${st.native}, `
         : '') +
       `${st.backend}${st.worker ? `+${st.workers} workers` : ''} ` +
