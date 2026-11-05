@@ -23,8 +23,10 @@ export interface Detection {
   /** Symbology, e.g. `"qr_code"`, `"ean_13"`. */
   format: BarcodeFormat;
   /**
-   * Location of the code. For camera scans: video pixels (`video.videoWidth`
-   * space). For `scanImage`: pixels of the source image.
+   * Location of the code: corners of the symbol (2D codes: their finder
+   * points; 1D codes: start-top, end-top, end-bottom, start-bottom). For
+   * camera scans: video pixels (`video.videoWidth` space). For `scanImage`:
+   * pixels of the source image.
    */
   points: Point[];
   /** Raw payload bytes when the symbology provides them (binary QR codes…). */

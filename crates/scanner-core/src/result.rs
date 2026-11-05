@@ -221,8 +221,10 @@ pub struct ScanResult {
     /// Location of the barcode in the coordinate system of the frame that was
     /// passed to the scanner (ROI offset and rotations are already undone).
     ///
-    /// 2D codes usually report 3–4 finder points; 1D codes report the two
-    /// end points of the scan line that decoded them.
+    /// 2D codes usually report 3–4 finder points. 1D codes report the four
+    /// corners of the symbol (start-top, end-top, end-bottom, start-bottom),
+    /// measured on the image; two points on the scan line that decoded them
+    /// when the box could not be measured.
     pub points: Vec<Point>,
 
     /// Unix timestamp (milliseconds) when this scan occurred.
