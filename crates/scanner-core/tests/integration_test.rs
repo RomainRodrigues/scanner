@@ -156,6 +156,58 @@ fn session_reads_cattle_ear_tag_in_camera_roi() {
     );
 }
 
+/// Real phone photo: Code 39 printed on an animal-feed label, partly in the
+/// shadow of the phone (grey, uneven background). Content "025925", the end
+/// of the lot number printed above it; the same value as zxing-cpp reads.
+/// On the whole photo only the Linear strategy reads it.
+#[test]
+fn decodes_feed_label_code39() {
+    let results = scan("real/feed_label_code39.jpg", ScannerConfig::image_file())
+        .expect("feed label Code 39");
+    assert_eq!(results[0], ("025925".to_string(), BarcodeFormat::Code39));
+}
+
+/// The highlight of that Code 39 spans the symbol: rxing's end point landed
+/// at 256 px for a code spanning 201 → 516 px (bounding box from zxing-cpp),
+/// so the overlay covered ~15 % of it.
+#[test]
+fn feed_label_code39_points_span_the_symbol() {
+    let path = fixture("real/feed_label_code39.jpg");
+    let results = Scanner::new(ScannerConfig::image_file())
+        .scan_file(path.to_str().expect("utf-8 path"))
+        .expect("feed label Code 39");
+    let xs: Vec<f32> = results[0].points.iter().map(|p| p.x).collect();
+    let (min, max) = xs
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
+    assert!(
+        (min - 201.0).abs() <= 6.0 && (max - 516.0).abs() <= 6.0,
+        "points {min}..{max}, symbol 201..516"
+    );
+}
+
+/// The same label as the SDK's camera sees it on a phone held in portrait
+/// (576×576 region of interest) with the code across half of it (~2.6 px
+/// per module). Code 39 is a weak format: 3 agreeing reads are required.
+#[test]
+fn session_reads_feed_label_code39_in_camera_roi() {
+    let photo = luma("real/feed_label_code39.jpg");
+    // Code bounding box in the fixture: x 201..516, y 480..555.
+    let (cx, cy, side) = (358u32, 518u32, 630u32);
+    let crop =
+        image::imageops::crop_imm(&photo, cx - side / 2, cy - side / 2, side, side).to_image();
+    let roi = image::imageops::resize(&crop, 576, 576, image::imageops::FilterType::Triangle);
+    let mut s = session();
+    let (frames, results) = (1..=12)
+        .find_map(|i| {
+            s.process_frame(roi.as_raw(), 576, 576, PixelFormat::Luma)
+                .map(|r| (i, r))
+        })
+        .expect("feed label in camera ROI");
+    assert_eq!(results[0].text, "025925");
+    assert!(frames <= 8, "confirmed after {frames} frames");
+}
+
 // ── Format filter (regression: rxing does not strictly honour PossibleFormats) ─
 
 #[test]

@@ -94,6 +94,16 @@ const scenarios = [
     expect: '02502239036645',
     options: {},
   },
+  {
+    // Real phone photo: Code 39 printed on an animal-feed label, in the shadow
+    // of the phone (grey, uneven background).
+    name: 'feed-label-photo',
+    image: 'real/feed_label_code39.jpg',
+    size: 540,
+    photo: true,
+    expect: '025925',
+    options: {},
+  },
 ];
 
 const server = await serve(0);

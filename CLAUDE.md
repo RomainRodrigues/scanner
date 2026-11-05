@@ -103,7 +103,7 @@ version courante (utilisé pour la première publication).
 | `PossibleFormats` de rxing pas strictement respecté → filtre après décodage ; liste toujours explicite, sinon rxing lit aussi RSS/Telepen… (`Unknown`) | `decode/rxing_backend.rs` |
 | Échecs checksum / format de rxing = « rien trouvé », pas une erreur | `decode/rxing_backend.rs` (`map_error`) |
 | Faux positifs 1D (surtout UPC-E) sur des textures, **stables d'une frame à l'autre** → vérification de la zone de silence | `decode/verify.rs`, test `tests/linear_formats.rs` |
-| Points rxing inutilisables pour Code 39 (inversés, à l'intérieur) et Codabar (fin = bout de ligne) → exemptés de la vérification | `decode/verify.rs` (`geometry`) |
+| Points rxing faux pour Code 39 (fin calculée `(lastStart + lastPatternSize) / 2` au lieu de `lastStart + lastPatternSize / 2` : la barre affichée couvrait ~15 % du code) et Codabar (fin = bout de ligne) → exemptés de la vérification, puis **extrémités mesurées sur l'image** (à partir du point de départ, le long de la ligne de lecture, jusqu'à la zone de silence) pour le surlignage. Corriger la formule obligerait à défaire les transformations de rxing (ligne inversée, rotation à 90°, recadrages) | `decode/verify.rs` (`geometry`), `decode/extent.rs`, tests `code39_and_codabar_points_are_the_symbol_ends`, `feed_label_code39_points_span_the_symbol` |
 | Position des points 1D propre à chaque symbologie (milieu des motifs start/stop) | `decode/verify.rs` (`geometry`) |
 | Codes 1D confirmés sur plusieurs frames (2, formats fragiles 3), 2D sur 1 frame | `result.rs` (`required_confirmations`), `realtime/tracker.rs` |
 | Zone de silence exigée : 5 modules pour les formats fragiles, **2** pour les formats à checksum (Code 128, EAN-13, UPC-A) — les vraies étiquettes/boucles ont souvent bien moins que la norme (bord de la boucle à ~3 modules sur la fixture) | `decode/verify.rs` (`STRONG_QUIET_MODULES`) |
@@ -164,8 +164,9 @@ version courante (utilisé pour la première publication).
   les valeurs attendues.
 - Les cas les plus durs sont **synthétisés dans les tests** (encodeurs rxing, flou,
   bruit, textures) : c'est déterministe et ça couvre chaque format.
-- `tests/fixtures/real/` contient les **vraies photos** (une pour l'instant : boucle
-  bovine, Code 128 gravé au laser). Chaque photo a sa valeur attendue et est testée en
+- `tests/fixtures/real/` contient les **vraies photos** : boucle bovine (Code 128
+  gravé au laser) et étiquette d'aliment (Code 39 dans l'ombre du téléphone, lu
+  seulement par `Linear` sur la photo entière). Chaque photo a sa valeur attendue et est testée en
   scan statique, en session et telle que la voit la caméra du SDK (recadrage ROI), plus
   un scénario e2e. Toute photo qui échoue chez un utilisateur doit finir ici.
 - Ce qui manque encore : davantage de vraies photos (reflets, codes abîmés, angles).

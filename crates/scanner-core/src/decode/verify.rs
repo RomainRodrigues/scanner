@@ -47,10 +47,11 @@ fn geometry(format: BarcodeFormat, text_len: usize) -> Option<Geometry> {
         BarcodeFormat::Code93 => g(9.0 * (n + 4.0) + 1.0, 4.5, 5.5),
         BarcodeFormat::Itf => g(9.0 * n + 9.0, 4.0, 5.0),
         // Code 39 and Codabar: rxing's result points do not mark the symbol
-        // ends (measured: the Code 39 points are swapped and inside the
-        // symbol, the Codabar end point is set to the row end), so they cannot
-        // be checked here. Their readers already verify a quiet zone around the
-        // start/stop characters, unlike the UPC/EAN readers.
+        // ends (the Code 39 end point is miscomputed, the Codabar one is the
+        // row end; see `extent.rs`, which measures the real ends afterwards
+        // for the overlay), so they cannot be checked here. Their readers
+        // already verify a quiet zone around the start/stop characters,
+        // unlike the UPC/EAN readers.
         _ => return None,
     })
 }

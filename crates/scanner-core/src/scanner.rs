@@ -4,7 +4,7 @@
 //! strategies but spreads the expensive ones over successive frames.
 
 use crate::config::ScannerConfig;
-use crate::decode::{verify, Effort, RxingDecoder};
+use crate::decode::{extent, verify, Effort, RxingDecoder};
 use crate::error::ScanError;
 use crate::frame::{Frame, PixelFormat};
 use crate::preprocess::{self, roi::crop_roi_owned, LinearScale};
@@ -145,10 +145,16 @@ impl Scanner {
         // longer looks like bars.
         let reference = enhanced.as_ref().unwrap_or(img);
         // Drop 1D reads that are not surrounded by a quiet zone (textures).
-        let results: Vec<ScanResult> = results
+        let mut results: Vec<ScanResult> = results
             .into_iter()
             .filter(|r| verify::plausible_linear(reference, r))
             .collect();
+        // Code 39 / Codabar: rxing's points do not mark the symbol ends, which
+        // the overlay draws. Measure them on the decoded image.
+        let inverted = matches!(strategy, Strategy::Inverted | Strategy::InvertedBinarized);
+        for r in &mut results {
+            extent::refine_line_ends(reference, r, inverted);
+        }
         if results.is_empty() {
             Err(ScanError::NotFound)
         } else {
