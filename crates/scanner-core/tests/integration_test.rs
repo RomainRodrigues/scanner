@@ -116,6 +116,34 @@ fn decodes_laser_engraved_cattle_ear_tag() {
     );
 }
 
+/// The highlight of the ear tag is the box of its bars (x ≈ 125 → 650,
+/// y ≈ 395 → 500 in the fixture), not the digits printed right above and
+/// below: following whole rows from one to the next drifted into them and the
+/// box covered the whole photo (y 0 → 1008), as reported on a phone.
+#[test]
+fn ear_tag_box_hugs_the_bars() {
+    let path = fixture("real/cattle_ear_tag_code128.jpg");
+    let results = Scanner::new(ScannerConfig::image_file())
+        .scan_file(path.to_str().expect("utf-8 path"))
+        .expect("ear tag");
+    let pts = &results[0].points;
+    let range = |v: Vec<f32>| {
+        v.iter()
+            .fold((f32::MAX, f32::MIN), |(a, b), &x| (a.min(x), b.max(x)))
+    };
+    let (x0, x1) = range(pts.iter().map(|p| p.x).collect());
+    let (y0, y1) = range(pts.iter().map(|p| p.y).collect());
+    assert_eq!(pts.len(), 4, "{pts:?}");
+    assert!(
+        (x0 - 125.0).abs() <= 8.0 && (x1 - 650.0).abs() <= 8.0,
+        "x {x0}..{x1}, bars 125..650"
+    );
+    assert!(
+        (y0 - 395.0).abs() <= 8.0 && (y1 - 500.0).abs() <= 8.0,
+        "y {y0}..{y1}, bars 395..500"
+    );
+}
+
 /// Same tag in a camera session: found within a few frames thanks to the
 /// fallback strategies run in turn.
 #[test]
