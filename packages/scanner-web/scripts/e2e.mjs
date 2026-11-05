@@ -55,10 +55,17 @@ function fakeCamera(name, image, size, { invert = false, photo = false } = {}) {
  * Installed in the page before the SDK loads: a fake native `BarcodeDetector`
  * (headless Chromium on Linux has none). `mode`: `'hit'` returns `code` at the
  * center of the video, `'miss'` finds nothing, `'throw'` fails like a broken
- * Play Services. Calls are counted in `window.__nativeCalls`.
+ * Play Services. Calls are counted in `window.__nativeCalls`, frames sent to
+ * the engine's workers in `window.__engineFrames`.
  */
 function installFakeDetector({ mode, code }) {
   window.__nativeCalls = 0;
+  window.__engineFrames = 0;
+  const post = Worker.prototype.postMessage;
+  Worker.prototype.postMessage = function (message, transfer) {
+    if (message?.type === 'decode') window.__engineFrames++;
+    return post.call(this, message, transfer);
+  };
   window.BarcodeDetector = class {
     static async getSupportedFormats() {
       return ['aztec', 'code_128', 'code_39', 'code_93', 'codabar', 'data_matrix', 'ean_13', 'ean_8'].concat([
@@ -148,6 +155,9 @@ const scenarios = [
     fake: { mode: 'hit', code: { text: '4006381333931', format: 'ean_13' } },
     expect: '4006381333931',
     minNativeCalls: 2,
+    // The native detector finds the code on every frame: nothing is grabbed
+    // nor sent to the engine.
+    maxEngineFrames: 0,
     native: true,
     options: { formats: ['ean_13', 'qr_code'], processing: { nativeDetector: 'auto' } },
   },
@@ -161,6 +171,8 @@ const scenarios = [
     fake: { mode: 'miss' },
     expect: '025925',
     minNativeCalls: 1,
+    // …but only from time to time: most frames are native only.
+    maxEngineShare: 1 / 3,
     native: true,
     options: { processing: { nativeDetector: 'auto' } },
   },
@@ -242,6 +254,7 @@ for (const s of scenarios) {
         video: [reader.video.videoWidth, reader.video.videoHeight],
         nativeCallsAtDetection,
         nativeCalls: window.__nativeCalls ?? null,
+        engineFrames: window.__engineFrames ?? null,
       };
       await reader.destroy();
       return result;
@@ -260,9 +273,14 @@ for (const s of scenarios) {
       !s.fake ||
       ((s.minNativeCalls === undefined || out.nativeCallsAtDetection >= s.minNativeCalls) &&
         (s.maxNativeCalls === undefined || out.nativeCalls <= s.maxNativeCalls) &&
+        (s.maxEngineFrames === undefined || out.engineFrames <= s.maxEngineFrames) &&
+        (s.maxEngineShare === undefined || out.engineFrames <= out.nativeCalls * s.maxEngineShare) &&
         st.native === s.native);
     const info =
-      (s.fake ? `native calls ${out.nativeCallsAtDetection}/${out.nativeCalls}, native ${st.native}, ` : '') +
+      (s.fake
+        ? `native calls ${out.nativeCallsAtDetection}/${out.nativeCalls}, engine frames ${out.engineFrames}, ` +
+          `native ${st.native}, `
+        : '') +
       `${st.backend}${st.worker ? `+${st.workers} workers` : ''} ` +
       `${st.frameWidth}×${st.frameHeight}, ` +
       `first read ${out.elapsed.toFixed(0)} ms, ${st.fps.toFixed(1)} fps, decode ${st.decodeMs.toFixed(1)} ms, ` +

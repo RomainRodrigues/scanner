@@ -141,10 +141,10 @@ overlay (ROI mask, highlights, torch / camera buttons) · beep · vibration
 - The engine is downloaded and compiled once, then shared by every worker.
 - With `processing.nativeDetector: 'auto'`, browsers that ship a native
   `BarcodeDetector` (Chrome on Android, macOS and ChromeOS) search each video
-  frame with it, in parallel with the grab. It replaces the engine's **fast
-  pass** only: the frames it finds nothing in still go to the workers, for
-  the fallback strategies, which read the hard codes (laser engraving,
-  shadows…) the native decoder has no preprocessing for. Its codes get the
+  frame with it, straight from the `<video>`: no grab, no worker. While it
+  finds nothing, the workers still decode a frame from time to time (~3 per
+  second) with the fallback strategies, which read the hard codes (laser
+  engraving, shadows…) the native decoder has no preprocessing for. Its codes get the
   same multi-frame confirmation and de-duplication. It is used only when it
   supports every requested format (`micro_qr`, which it lacks, is then read
   by the fallbacks), and dropped for the engine alone if it ever fails.
