@@ -118,6 +118,15 @@ export interface ProcessingOptions {
   maxDimension?: number;
   /** Frame pipeline. `'auto'` uses WebGL2 and falls back to Canvas 2D. Default: `'auto'`. */
   backend?: 'auto' | 'webgl' | 'canvas';
+  /**
+   * Use the browser's native `BarcodeDetector` (Chrome on Android, macOS and
+   * ChromeOS) as the fast pass, when it supports every requested format
+   * (`micro_qr` excepted). The engine's fallback strategies keep running on
+   * the frames it finds nothing in: hard codes (laser engraving, shadows…)
+   * are still read. Codes get the same confirmation and de-duplication.
+   * Elsewhere, or if it fails, the engine does everything. Default: `'off'`.
+   */
+  nativeDetector?: 'auto' | 'off';
 }
 
 export interface ReaderOptions extends EngineOptions, AssetOptions {
@@ -152,6 +161,10 @@ export interface ReaderStats {
   worker: boolean;
   /** Frames decoded in parallel (number of workers, `1` on the main thread). */
   workers: number;
+  /** `true` when the native `BarcodeDetector` does the fast pass (see `processing.nativeDetector`). */
+  native: boolean;
+  /** Average native detection time, in ms (`0` when not used). */
+  nativeMs: number;
 }
 
 export interface ReaderEvents {

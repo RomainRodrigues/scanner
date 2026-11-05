@@ -1,0 +1,125 @@
+// The browser's native barcode decoder (`BarcodeDetector`, Shape Detection API).
+//
+// Available in Chrome on Android (Google Play Services), macOS (Apple Vision)
+// and ChromeOS; not in Safari, Firefox, nor Chrome on Windows / Linux. Where it
+// exists it decodes outside the page's threads, so it can replace the engine's
+// **fast path**: the engine then only runs its fallback strategies (Linear,
+// CLAHE, Sauvola, inverted…) on the frames the native decoder found nothing
+// in. The native decoder has no such preprocessing, and those strategies are
+// what reads the hard codes (laser-engraved tags, labels in shadow).
+import type { Rect } from './grabber.js';
+import type { BarcodeFormat, Detection, Point } from './types.js';
+
+// The API is not in TypeScript's `lib.dom` yet: minimal local declarations.
+
+/** A code found by `BarcodeDetector.detect()`. */
+export interface NativeBarcode {
+  rawValue: string;
+  format: string;
+  /** Corners in pixels of the source (for a `<video>`: `videoWidth` space). */
+  cornerPoints: readonly Point[];
+}
+
+interface BarcodeDetectorInstance {
+  detect(source: CanvasImageSource): Promise<NativeBarcode[]>;
+}
+
+/** The `BarcodeDetector` constructor. */
+export interface BarcodeDetectorClass {
+  new (options?: { formats?: string[] }): BarcodeDetectorInstance;
+  getSupportedFormats(): Promise<string[]>;
+}
+
+/**
+ * Formats of this SDK, all spelled like the native ones (`qr_code`, `ean_13`…)
+ * except `micro_qr`, which the native API does not have: when it is asked
+ * for, it is still read by the engine's fallback strategies (`Hard` decodes
+ * the raw frame with every format), only less often than by a fast path.
+ */
+const NATIVE_FORMATS: readonly BarcodeFormat[] = [
+  'qr_code',
+  'data_matrix',
+  'aztec',
+  'pdf417',
+  'code_128',
+  'code_39',
+  'code_93',
+  'ean_13',
+  'ean_8',
+  'upc_a',
+  'upc_e',
+  'itf',
+  'codabar',
+];
+
+/** Native decoder serving one reader configuration. */
+export class NativeDetector {
+  private constructor(
+    private detector: BarcodeDetectorInstance,
+    /** Formats the detector looks for. */
+    readonly formats: readonly BarcodeFormat[],
+  ) {}
+
+  /**
+   * A detector for `formats` (default: all), or `undefined` when the native
+   * decoder cannot replace the engine's fast path: API absent, or one of the
+   * requested formats not supported natively (codes of that format would
+   * then only be read by the slower fallbacks).
+   */
+  static async create(
+    formats: readonly BarcodeFormat[] | undefined,
+    api: BarcodeDetectorClass | undefined = nativeApi(),
+  ): Promise<NativeDetector | undefined> {
+    if (!api) return undefined;
+    let supported: string[];
+    try {
+      supported = await api.getSupportedFormats();
+    } catch {
+      return undefined;
+    }
+    // On Android the list is empty until Google Play Services has downloaded
+    // its barcode module (first use on the device, in the background): the
+    // detector is unavailable *for now*, the engine does the whole job.
+    const wanted = (formats?.length ? formats : NATIVE_FORMATS).filter((f) => f !== 'micro_qr');
+    if (wanted.length === 0 || !wanted.every((f) => supported.includes(f))) return undefined;
+    try {
+      return new NativeDetector(new api({ formats: [...wanted] }), wanted);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Codes in `source` whose center lies in `rect` (the region of interest, in
+   * source pixels), as detections in source pixels. Throws when the native
+   * decoder fails.
+   */
+  async detect(source: CanvasImageSource, rect: Rect): Promise<Detection[]> {
+    const found = await this.detector.detect(source);
+    const timestamp = Date.now();
+    return found.flatMap((code) => {
+      const format = code.format as BarcodeFormat;
+      if (!this.formats.includes(format) || code.cornerPoints.length === 0) return [];
+      if (!contains(rect, center(code.cornerPoints))) return [];
+      const points = code.cornerPoints.map((p) => ({ x: p.x, y: p.y }));
+      return [{ text: code.rawValue, format, points, timestamp }];
+    });
+  }
+}
+
+function nativeApi(): BarcodeDetectorClass | undefined {
+  const api: unknown = Reflect.get(globalThis, 'BarcodeDetector');
+  return typeof api === 'function' ? (api as BarcodeDetectorClass) : undefined;
+}
+
+function center(points: readonly Point[]): Point {
+  const n = points.length;
+  return {
+    x: points.reduce((s, p) => s + p.x, 0) / n,
+    y: points.reduce((s, p) => s + p.y, 0) / n,
+  };
+}
+
+function contains(r: Rect, p: Point): boolean {
+  return p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
+}

@@ -47,6 +47,8 @@ Flux temps réel : caméra → `<video>` → WebGL2 (ROI, luma, réduction, 4 px
 relecture asynchrone) → pool de Web Workers en parallèle (`FrameDecoder` : passe rapide +
 1 stratégie de secours, vérification 1D) ⇄ `ScanSession` sur le thread principal
 (`plan` : choix de la stratégie, partage du temps CPU ; `commit` : confirmations, dé-duplication).
+En option, le `BarcodeDetector` natif du navigateur fait la passe rapide (`commit_external`) et les
+workers ne lancent plus que les secours sur les frames où il ne trouve rien.
 
 ## Commandes
 
@@ -125,6 +127,7 @@ version courante (utilisé pour la première publication).
 | Rapports d'une configuration précédente (frames en vol pendant `configure`) ignorés via un numéro de génération | `src/engine.ts` (`generation`) |
 | Moteur compilé **une fois** sur le thread principal (`WebAssembly.Module` envoyé aux workers) : un seul téléchargement / compilation | `src/core.ts` (`compileWasm`), `src/engine.ts` |
 | 3 workers max par défaut (cœurs − 1) : au-delà le grab (~55 ms sur Galaxy A14, ~18 fps) limite et chaque worker coûte une instance WASM. Débit mesuré en e2e : ×3,25 avec 3 workers (4 cœurs) | `src/engine.ts` (`defaultWorkerCount`) |
+| `BarcodeDetector` natif (option `processing.nativeDetector: 'auto'`, défaut `'off'` tant qu'il n'est pas mesuré sur appareil) = **passe rapide seulement** : lancé sur le `<video>` **en parallèle** du grab (il décode hors des threads de la page) ; s'il trouve, ses codes passent par `ScanSession::commit_external` (même filtre de formats, mêmes confirmations 1D, même dé-duplication ; l'ordonnanceur n'est pas touché) et la frame grabée est jetée ; sinon la frame part aux workers **sans passe rapide** (`plan_fallback_only`) : les secours (Linear, CLAHE…) lisent ce que le natif rate, il n'a aucun prétraitement (étiquette e2e : 29 → 15 ms de décodage par frame). Utilisé seulement s'il couvre **tous** les formats demandés, `micro_qr` excepté (absent du natif, lu par `Hard`) ; `getSupportedFormats()` vide tant que Play Services n'a pas téléchargé son module → indisponible pour cette fois. Premier échec de `detect()` → abandonné pour le reader, avec un `console.warn` (comme le repli WebGL → Canvas). Pas de vérification de zone de silence sur ses codes 1D (il faudrait l'image) : seules les confirmations multi-frames filtrent ses faux positifs — à mesurer sur une texture avant d'en faire le défaut. Un seul `detect()` en vol (il fait partie de l'étage de grab) ; le numéro de séquence et une génération (`configure`) s'appliquent à ses résultats | `src/native.ts`, `src/reader.ts` (`acquire`), `realtime/session.rs`, `realtime/decoder.rs` (`skip_fast_path`), tests `native.test.mjs`, scénarios e2e `native-*` |
 | Les décodages finissent dans le désordre : les surlignages ne sont mis à jour que par une frame plus récente que la dernière affichée | `src/reader.ts` (`seq`) |
 | Throttle adaptatif désactivé par le SDK (le worker gère déjà la contre-pression) | `packages/scanner-web/src/core.ts` |
 | Vue `frameBuffer()` invalidée à chaque croissance de la mémoire WASM : ne jamais la garder | `crates/scanner-wasm/src/lib.rs` |

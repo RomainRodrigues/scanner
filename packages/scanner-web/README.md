@@ -51,7 +51,7 @@ await reader.destroy();  // removes the preview, frees the engine
 | `camera` | `{ facingMode: 'environment', resolution: 'hd' }` | Also `deviceId`, `rememberDevice` (default `true`), `releaseWhenHidden` (default `true`: the camera is released while the page is hidden and reopened when it is visible again). |
 | `overlay` | all on | `showRegion`, `showDetections`, `showTorchButton`, `showCameraSwitch`, `color`, or `false`. |
 | `feedback` | beep + vibrate | `{ beep, vibrate }` or `false`. |
-| `processing` | `{ maxDimension: 1024, backend: 'auto' }` | Decoder image size; `'webgl'`, `'canvas'` or `'auto'`. |
+| `processing` | `{ maxDimension: 1024, backend: 'auto', nativeDetector: 'off' }` | Decoder image size; `'webgl'`, `'canvas'` or `'auto'`; `nativeDetector: 'auto'` uses the browser's `BarcodeDetector` as the fast pass where it exists (see [How it works](#how-it-works)). |
 | `worker` | `true` | Decode in Web Workers; falls back to the main thread if unavailable. |
 | `workers` | cores − 1 (1–3) | Number of decoding workers: frames are decoded in parallel. |
 | `wasmUrl`, `workerUrl` | auto | Override asset URLs (CDN, custom bundler setup). |
@@ -64,7 +64,7 @@ await reader.destroy();  // removes the preview, frees the engine
 - `setRegionOfInterest(region)`
 - `setTorch(on)`, `torchAvailable`, `setZoom(zoom)`, `switchCamera(deviceId?)`, `BarcodeReader.listCameras()`
 - `clearCooldown(text)` — allow a code to be reported again immediately
-- `stats` — `{ fps, decodeMs, grabMs, frameWidth, frameHeight, backend, worker, workers }`
+- `stats` — `{ fps, decodeMs, grabMs, frameWidth, frameHeight, backend, worker, workers, native, nativeMs }`
 - `video` — the underlying `<video>` element
 
 Detection points are in video pixels (`video.videoWidth` space).
@@ -139,6 +139,16 @@ overlay (ROI mask, highlights, torch / camera buttons) · beep · vibration
 - If WebGL2 is missing or the context is lost, the pipeline switches to Canvas 2D.
 - If the engine crashes, the worker is restarted transparently.
 - The engine is downloaded and compiled once, then shared by every worker.
+- With `processing.nativeDetector: 'auto'`, browsers that ship a native
+  `BarcodeDetector` (Chrome on Android, macOS and ChromeOS) search each video
+  frame with it, in parallel with the grab. It replaces the engine's **fast
+  pass** only: the frames it finds nothing in still go to the workers, for
+  the fallback strategies, which read the hard codes (laser engraving,
+  shadows…) the native decoder has no preprocessing for. Its codes get the
+  same multi-frame confirmation and de-duplication. It is used only when it
+  supports every requested format (`micro_qr`, which it lacks, is then read
+  by the fallbacks), and dropped for the engine alone if it ever fails.
+  Safari, Firefox and Chrome on Windows / Linux do not have it: nothing changes there.
 
 ## Browser support
 

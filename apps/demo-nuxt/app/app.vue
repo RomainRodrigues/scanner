@@ -18,13 +18,20 @@ const results = ref<(Detection & { source: string })[]>([]);
 const error = ref('');
 const stats = ref<ReaderStats | null>(null);
 const busy = ref(false);
+/** Native BarcodeDetector as the fast pass (Chrome on Android, macOS, ChromeOS). */
+const native = ref(false);
+const nativeAvailable = ref(false);
+onMounted(() => (nativeAvailable.value = 'BarcodeDetector' in window));
+// The scanner is remounted with the new setting: its stats are stale.
+watch(native, () => (stats.value = null));
 
 const statsLine = computed(() => {
   const s = stats.value;
   if (!s) return '';
   return (
     `${s.fps.toFixed(0)} fps · decode ${s.decodeMs.toFixed(1)} ms · grab ${s.grabMs.toFixed(1)} ms · ` +
-    `${s.frameWidth}×${s.frameHeight} · ${s.backend}${s.worker ? ` · ${s.workers} workers` : ''}`
+    `${s.frameWidth}×${s.frameHeight} · ${s.backend}${s.worker ? ` · ${s.workers} workers` : ''}` +
+    (s.native ? ` · native ${s.nativeMs.toFixed(1)} ms` : '')
   );
 });
 
@@ -70,8 +77,10 @@ async function copy(text: string) {
 
     <section class="card">
       <BarcodeScanner
+        :key="native ? 'native' : 'engine'"
         ref="scanner"
         :formats="formats"
+        :native-detector="native"
         @detected="onDetected"
         @error="onError"
         @stats="stats = $event"
@@ -83,6 +92,10 @@ async function copy(text: string) {
         <select v-model.number="preset" aria-label="Formats">
           <option v-for="(p, i) in presets" :key="p.label" :value="i">{{ p.label }}</option>
         </select>
+        <label class="file" :class="{ dim: !nativeAvailable }">
+          <input v-model="native" type="checkbox" :disabled="!nativeAvailable" />
+          Native detector{{ nativeAvailable ? '' : ' (unavailable)' }}
+        </label>
         <label class="file">
           Scan a photo
           <input type="file" accept="image/*" hidden @change="onFile" />

@@ -2,7 +2,9 @@
 // Reusable wrapper around the SDK's BarcodeReader: copy it into your own app.
 import type { BarcodeFormat, BarcodeReader, Detection, ReaderStats } from '@gueshbzh-perso/scanner';
 
-const props = defineProps<{ formats?: BarcodeFormat[] }>();
+// `nativeDetector` is read once, when the reader is created: remount the
+// component (`:key`) to change it.
+const props = defineProps<{ formats?: BarcodeFormat[]; nativeDetector?: boolean }>();
 const emit = defineEmits<{
   detected: [codes: Detection[]];
   error: [error: Error];
@@ -26,7 +28,11 @@ async function createReader(): Promise<BarcodeReader> {
   if (!host.value) throw new Error('BarcodeScanner is not mounted');
   // Imported lazily: the SDK only runs in the browser.
   const { BarcodeReader } = await import('@gueshbzh-perso/scanner');
-  const created = await BarcodeReader.create({ host: host.value, formats: props.formats });
+  const created = await BarcodeReader.create({
+    host: host.value,
+    formats: props.formats,
+    processing: { nativeDetector: props.nativeDetector ? 'auto' : 'off' },
+  });
   created.on('detected', (codes) => emit('detected', codes));
   created.on('error', (err) => emit('error', err));
   reader = created;
