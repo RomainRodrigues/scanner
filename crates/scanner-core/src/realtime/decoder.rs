@@ -44,6 +44,12 @@ pub struct FramePlan {
     /// Fallback strategy to run if the fast path finds nothing: an index in
     /// the fallback list of the configuration. `None`: fast path only.
     pub fallback: Option<usize>,
+    /// Skip the fast path and run the fallback only: another decoder (the
+    /// browser's native `BarcodeDetector`) already did the fast pass on this
+    /// frame and found nothing, see
+    /// [`ScanSession::plan_fallback_only`](crate::ScanSession::plan_fallback_only).
+    #[serde(default)]
+    pub skip_fast_path: bool,
 }
 
 /// Outcome of [`FrameDecoder::decode`], to hand to
@@ -78,13 +84,18 @@ impl FrameDecoder {
         Self { scanner, fallbacks }
     }
 
+    /// The configuration this decoder was created with.
+    pub fn config(&self) -> &ScannerConfig {
+        self.scanner.config()
+    }
+
     /// Fallback strategies, in the order [`FramePlan::fallback`] refers to.
     pub fn fallbacks(&self) -> &[Strategy] {
         &self.fallbacks
     }
 
-    /// Decode a raw frame: the fast path, then the planned fallback if the
-    /// fast path found nothing.
+    /// Decode a raw frame: the fast path (unless the plan skips it), then the
+    /// planned fallback if the fast path found nothing.
     ///
     /// # Errors
     /// [`ScanError::InvalidImage`] when `data` does not match the dimensions.
@@ -109,7 +120,11 @@ impl FrameDecoder {
             plan,
             ..FrameReport::default()
         };
-        let mut result = self.scanner.run_strategy(&img, Strategy::Fast);
+        let mut result = if plan.skip_fast_path {
+            Err(ScanError::NotFound)
+        } else {
+            self.scanner.run_strategy(&img, Strategy::Fast)
+        };
         if result.is_err() {
             if let Some(&strategy) = plan.fallback.and_then(|i| self.fallbacks.get(i)) {
                 result = self.scanner.run_strategy(&img, strategy);
@@ -147,7 +162,10 @@ mod tests {
     fn runs_the_planned_fallback_only_when_the_fast_path_fails() {
         let decoder = FrameDecoder::new(ScannerConfig::default());
         let blank = vec![255u8; 64 * 64];
-        let plan = FramePlan { fallback: Some(0) };
+        let plan = FramePlan {
+            fallback: Some(0),
+            ..FramePlan::default()
+        };
         let report = decoder
             .decode(&blank, 64, 64, PixelFormat::Luma, plan)
             .expect("valid frame");
@@ -168,10 +186,62 @@ mod tests {
         let blank = vec![255u8; 64 * 64];
         let plan = FramePlan {
             fallback: Some(999),
+            ..FramePlan::default()
         };
         let report = decoder
             .decode(&blank, 64, 64, PixelFormat::Luma, plan)
             .expect("valid frame");
         assert!(!report.fallback_ran);
+    }
+
+    /// A clean EAN-13, read by the fast path (and by `Hard`, fallback 0).
+    fn ean13() -> (Vec<u8>, u32, u32) {
+        use rxing::Writer;
+        let matrix = rxing::oned::EAN13Writer
+            .encode("5901234123457", &rxing::BarcodeFormat::EAN_13, 190, 80)
+            .expect("encodable");
+        let (w, h) = (matrix.getWidth() + 40, matrix.getHeight() + 40);
+        let mut pixels = vec![255u8; (w * h) as usize];
+        for y in 0..matrix.getHeight() {
+            for x in 0..matrix.getWidth() {
+                if matrix.get(x, y) {
+                    pixels[((y + 20) * w + x + 20) as usize] = 0;
+                }
+            }
+        }
+        (pixels, w, h)
+    }
+
+    #[test]
+    fn a_plan_without_fast_path_runs_the_fallback_only() {
+        let decoder = FrameDecoder::new(ScannerConfig::default());
+        let (pixels, w, h) = ean13();
+        let decode = |plan| {
+            decoder
+                .decode(&pixels, w, h, PixelFormat::Luma, plan)
+                .expect("valid frame")
+        };
+
+        let fast = decode(FramePlan::default());
+        assert_eq!(fast.results.len(), 1, "read by the fast path");
+        assert!(!fast.fallback_ran);
+
+        let skipped = decode(FramePlan {
+            fallback: None,
+            skip_fast_path: true,
+        });
+        assert!(skipped.results.is_empty(), "nothing runs");
+        assert!(!skipped.fallback_ran);
+
+        let fallback = decode(FramePlan {
+            fallback: Some(0),
+            skip_fast_path: true,
+        });
+        assert!(
+            fallback.fallback_ran,
+            "the fallback runs although the fast path would read it"
+        );
+        assert!(fallback.fallback_read);
+        assert_eq!(fallback.results[0].text, "5901234123457");
     }
 }

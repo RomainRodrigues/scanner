@@ -100,3 +100,30 @@ fn plan_decode_commit_roundtrip() {
         Some("parallel")
     );
 }
+
+#[wasm_bindgen_test]
+fn commit_external_confirms_like_decoded_frames() {
+    let mut session = WasmScanSession::new(None);
+    let ean = js_sys::JSON::parse(
+        r#"[{"text":"5901234123457","format":"ean_13","points":[{"x":1,"y":2}],"timestampMs":0}]"#,
+    )
+    .unwrap();
+    // 1D: reported on the second agreeing read.
+    let first = session
+        .commit_external(ean.clone(), 4.0)
+        .map_err(JsValue::from)
+        .unwrap();
+    assert!(first.is_null());
+    let second = session
+        .commit_external(ean, 4.0)
+        .map_err(JsValue::from)
+        .unwrap();
+    assert_eq!(first_text(&second).as_deref(), Some("5901234123457"));
+
+    // Malformed input is an error, not a panic.
+    assert!(session.commit_external(JsValue::from(3), 1.0).is_err());
+
+    // Fallback-only plans are flagged for the decoder.
+    let plan = session.plan_fallback_only();
+    assert!(plan.skip_fast_path);
+}
