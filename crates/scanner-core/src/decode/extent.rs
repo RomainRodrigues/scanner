@@ -18,9 +18,13 @@
 //!    through the bars until the quiet zone. Correcting rxing's formulas
 //!    instead would have to undo its later transforms (reversed rows, 90°
 //!    retries, crops).
-//! 2. **Height** across the scan line: rows (or columns) are added on both
-//!    sides while their bar pattern matches the previous one, which also
-//!    follows slightly tilted codes.
+//! 2. **Height** across the scan line: the bars of the scan line are followed
+//!    line by line on both sides until most of them end. Comparing whole rows
+//!    to the previous one instead drifted: on the ear tag the bars blend into
+//!    the digits printed above and below over a few rows, each close enough
+//!    to the previous one, and the box covered the whole frame (0 → 1008 px);
+//!    comparing them to the scan line only stopped half way down the
+//!    feed-label bars (print variations).
 
 use super::verify::geometry;
 use crate::preprocess::linear::dark_profile;
@@ -31,11 +35,10 @@ use image::GrayImage;
 /// Spaces inside a symbol are at most 4 modules (Code 128, EAN), Code 39
 /// inter-character gaps at most 3; a quiet zone is at least 10.
 const QUIET_FACTOR: usize = 5;
-/// A row belongs to the symbol when this fraction of its pixels have the
-/// same dark / light value as the previous row (text or background: ~50 %).
-const SAME_PATTERN: f32 = 0.8;
-/// Rows that may fail the comparison in a row (scratches, specks) before the
-/// symbol is considered to end.
+/// A line belongs to the symbol while at least this fraction of the bar
+/// pixels of the scan line continue through it.
+const ALIVE: f32 = 0.6;
+/// Light lines a bar may cross (scratches, specks) and still continue.
 const MAX_MISSES: usize = 2;
 
 /// `true` for the formats whose rxing reader reports unusable end points.
@@ -94,18 +97,25 @@ pub(crate) fn refine_linear_box(img: &GrayImage, r: &mut ScanResult, inverted: b
 
 /// Ends of the symbol along the scan line, start pattern side first.
 fn symbol_ends(line: &Line<'_>, r: &ScanResult, a0: f32, a1: f32) -> Option<(f32, f32)> {
+    let dark = line.dark_at(line.pos)?;
     if !has_unreliable_points(r.format) {
         // Points in the middle of the start / stop patterns, at a known
-        // number of modules inside the symbol.
+        // number of modules inside the symbol. The module is measured on the
+        // bars: deriving it from the text length assumes one character per
+        // symbol, wrong for Code 128 set C (two digits per symbol), which
+        // left the outer bars of the ear tag out of the box.
         let geo = geometry(r.format, r.text.chars().count())?;
-        let module = (a1 - a0).abs() / (geo.modules - geo.inner_start - geo.inner_end).max(1.0);
+        let (from, to) = (
+            a0.min(a1).max(0.0) as usize,
+            (a0.max(a1) as usize).min(dark.len()),
+        );
+        let module = module_width(&dark[from..to])?;
         let dir = (a1 - a0).signum();
         return Some((
             a0 - dir * geo.inner_start * module,
             a1 + dir * geo.inner_end * module,
         ));
     }
-    let dark = line.dark_at(line.pos)?;
     let (lo, hi) = symbol_extent(&dark, a0)?;
     // Keep the start pattern side first.
     Some(if (a0 - lo).abs() <= (a0 - hi).abs() {
@@ -162,6 +172,20 @@ fn walk(dark: &[bool], start: usize, forward: bool, bars: &mut Vec<usize>) -> us
         };
     }
     last_bar
+}
+
+/// Width of one module: the narrowest element width that is common (first
+/// quartile of the bar and space widths, which are 1 to 4 modules).
+fn module_width(dark: &[bool]) -> Option<f32> {
+    let mut runs: Vec<usize> = dark.chunk_by(|a, b| a == b).map(<[bool]>::len).collect();
+    // The outer runs may be cut by the span: ignore them.
+    if runs.len() < 6 {
+        return None;
+    }
+    runs.pop();
+    runs.remove(0);
+    runs.sort_unstable();
+    Some(runs[runs.len() / 4] as f32)
 }
 
 fn median(values: &[usize]) -> usize {
@@ -236,16 +260,26 @@ impl<'a> Line<'a> {
         Some(dark[from - a..to - a].to_vec())
     }
 
-    /// Lines on each side of the scan line whose bars over `[lo, hi)` continue
-    /// the pattern of the previous line.
+    /// Lines on each side of the scan line through which the bars of the scan
+    /// line continue: each bar pixel of the scan line is followed line by
+    /// line, moving by one pixel to follow a tilted code and surviving
+    /// `MAX_MISSES` light lines (scratches). The symbol ends when fewer than
+    /// `ALIVE` of them continue: text or digits touching the bars only extend
+    /// the bars under their strokes.
     fn thickness(&self, lo: usize, hi: usize) -> (usize, usize) {
         let hi = hi.min(self.len);
         let Some(reference) = self.dark_span(self.pos, lo, hi) else {
             return (0, 0);
         };
+        let start: Vec<usize> = (0..reference.len()).filter(|&i| reference[i]).collect();
+        if start.is_empty() {
+            return (0, 0);
+        }
         let max = (hi - lo).max(16) * 2;
         let extend = |step: isize| {
-            let (mut prev, mut extent, mut misses) = (reference.clone(), 0usize, 0usize);
+            // (position in the span, consecutive misses)
+            let mut tracks: Vec<(usize, usize)> = start.iter().map(|&x| (x, 0)).collect();
+            let mut extent = 0;
             for d in 1..=max {
                 let index = self.pos as isize + step * d as isize;
                 let Ok(index) = usize::try_from(index) else {
@@ -254,16 +288,25 @@ impl<'a> Line<'a> {
                 let Some(row) = self.dark_span(index, lo, hi) else {
                     break;
                 };
-                let same = prev.iter().zip(&row).filter(|(a, b)| a == b).count();
-                if same as f32 >= SAME_PATTERN * row.len() as f32 {
-                    extent = d;
-                    prev = row;
-                    misses = 0;
-                } else {
-                    misses += 1;
-                    if misses > MAX_MISSES {
-                        break;
+                let mut on = 0;
+                for (x, misses) in &mut tracks {
+                    let next = [*x, x.saturating_sub(1), *x + 1]
+                        .into_iter()
+                        .find(|&c| row.get(c).copied().unwrap_or(false));
+                    if let Some(c) = next {
+                        *x = c;
+                        *misses = 0;
+                        on += 1;
+                    } else {
+                        *misses += 1;
                     }
+                }
+                let alive = tracks.iter().filter(|(_, m)| *m <= MAX_MISSES).count();
+                if on as f32 >= ALIVE * start.len() as f32 {
+                    extent = d;
+                }
+                if (alive as f32) < ALIVE * start.len() as f32 {
+                    break;
                 }
             }
             extent
@@ -374,6 +417,49 @@ mod tests {
             })
             .collect();
         assert!(boxes.windows(2).all(|w| w[0] == w[1]), "{boxes:?}");
+    }
+
+    /// The ear-tag layout: big digits printed right above and below the bars,
+    /// touching them. Comparing rows to the previous one drifted into them.
+    #[test]
+    fn box_stops_at_digits_touching_the_bars() {
+        let img = GrayImage::from_fn(300, 300, |x, y| {
+            let bar = (100..160).contains(&y) && (100..190).contains(&x) && (x / 3) % 2 == 0;
+            // "Digits": thick strokes 20 px wide every 40 px, with a soft edge
+            // into the bars (2 rows half-way between both patterns).
+            let digit = (!(100..160).contains(&y) && (40..280).contains(&y) && (x / 20) % 2 == 0)
+                || ((98..100).contains(&y) || (160..162).contains(&y))
+                    && (x / 3) % 2 == 0
+                    && (x / 20) % 2 == 0;
+            Luma([if bar || digit { 30 } else { 230 }])
+        });
+        let mut r = code39(vec![Point::new(103.0, 130.0), Point::new(130.0, 130.0)]);
+        refine_linear_box(&img, &mut r, false);
+        let ys: Vec<f32> = r.points.iter().map(|p| p.y).collect();
+        let (y0, y1) = ys
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
+        assert!(
+            (96.0..=100.0).contains(&y0) && (160.0..=164.0).contains(&y1),
+            "{ys:?}"
+        );
+    }
+
+    #[test]
+    fn box_follows_a_slightly_tilted_code() {
+        // Bars shifted by one pixel every 12 rows (~5°).
+        let img = GrayImage::from_fn(300, 200, |x, y| {
+            let xs = i64::from(x) - (i64::from(y) - 100) / 12;
+            let bar = (60..140).contains(&y) && (100..190).contains(&xs) && (xs / 3) % 2 == 0;
+            Luma([if bar { 30 } else { 230 }])
+        });
+        let mut r = code39(vec![Point::new(103.0, 100.0), Point::new(130.0, 100.0)]);
+        refine_linear_box(&img, &mut r, false);
+        let ys: Vec<f32> = r.points.iter().map(|p| p.y).collect();
+        let (y0, y1) = ys
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
+        assert!(y0 <= 62.0 && y1 >= 138.0, "{ys:?}");
     }
 
     #[test]
