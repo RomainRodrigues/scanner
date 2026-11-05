@@ -167,6 +167,25 @@ fn decodes_feed_label_code39() {
     assert_eq!(results[0], ("025925".to_string(), BarcodeFormat::Code39));
 }
 
+/// The highlight of that Code 39 spans the symbol: rxing's end point landed
+/// at 256 px for a code spanning 201 → 516 px (bounding box from zxing-cpp),
+/// so the overlay covered ~15 % of it.
+#[test]
+fn feed_label_code39_points_span_the_symbol() {
+    let path = fixture("real/feed_label_code39.jpg");
+    let results = Scanner::new(ScannerConfig::image_file())
+        .scan_file(path.to_str().expect("utf-8 path"))
+        .expect("feed label Code 39");
+    let xs: Vec<f32> = results[0].points.iter().map(|p| p.x).collect();
+    let (min, max) = xs
+        .iter()
+        .fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
+    assert!(
+        (min - 201.0).abs() <= 6.0 && (max - 516.0).abs() <= 6.0,
+        "points {min}..{max}, symbol 201..516"
+    );
+}
+
 /// The same label as the SDK's camera sees it on a phone held in portrait
 /// (576×576 region of interest) with the code across half of it (~2.6 px
 /// per module). Code 39 is a weak format: 3 agreeing reads are required.

@@ -174,6 +174,22 @@ fn threshold_rows(img: &GrayImage, radius: usize, step: usize) -> GrayImage {
     GrayImage::from_raw(w as u32, rows as u32, out).expect("threshold: exact size")
 }
 
+/// Dark / light classification of a 1D profile (`true` = dark), with the
+/// same local min / max midpoint as the Linear threshold. Flat windows (no
+/// contrast) are light.
+pub(crate) fn dark_profile(profile: &[u8], radius: usize) -> Vec<bool> {
+    let mut range = SlidingRange::new(profile.len(), radius);
+    range.compute(profile);
+    profile
+        .iter()
+        .enumerate()
+        .map(|(x, &v)| {
+            let (lo, hi) = range.at(x);
+            hi - lo >= MIN_LOCAL_CONTRAST && u16::from(v) <= (u16::from(lo) + u16::from(hi)) / 2
+        })
+        .collect()
+}
+
 /// Sliding min and max over a window of `2 × radius + 1` pixels, with the
 /// van Herk / Gil-Werman algorithm: 3 comparisons per pixel whatever the
 /// radius, no branch on the data (the monotonic deques it replaced were

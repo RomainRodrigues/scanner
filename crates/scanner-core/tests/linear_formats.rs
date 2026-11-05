@@ -161,3 +161,63 @@ fn no_false_positives_on_barcode_like_textures() {
         reports.join("\n")
     );
 }
+
+/// The overlay draws a 1D code as a bar between its two points, so they must
+/// be the ends of the symbol. rxing's Code 39 and Codabar points are not
+/// (see `decode/extent.rs`); they are measured on the image instead. Checked
+/// upright, upside down and rotated by 90° (other scan paths in rxing).
+#[test]
+fn code39_and_codabar_points_are_the_symbol_ends() {
+    use scanner_core::{Scanner, ScannerConfig};
+    let scanner = Scanner::new(ScannerConfig::image_file());
+    for (format, ours, content) in [
+        (RxFormat::CODE_39, BarcodeFormat::Code39, "SCAN-39"),
+        (RxFormat::CODABAR, BarcodeFormat::Codabar, "A123456B"),
+    ] {
+        let px = 3;
+        let m = MultiFormatWriter
+            .encode(content, &format, 0, 0)
+            .expect("encode");
+        // The encoder's matrix includes its own margins: the symbol spans
+        // its first to its last bar column (placed as in `frame`).
+        let bar_cols: Vec<u32> = (0..m.getWidth()).filter(|&x| m.get(x, 0)).collect();
+        let ox = (640 - m.getWidth() * px) / 2;
+        let x0 = (ox + bar_cols[0] * px) as f32;
+        let x1 = (ox + (bar_cols[bar_cols.len() - 1] + 1) * px) as f32;
+        let upright = frame(format, content, px);
+        let views = [
+            ("upright", upright.clone(), (x0, x1), false),
+            (
+                "upside down",
+                image::imageops::rotate180(&upright),
+                (640.0 - x1, 640.0 - x0),
+                false,
+            ),
+            (
+                "rotated 90°",
+                image::imageops::rotate90(&upright),
+                (x0, x1),
+                true,
+            ),
+        ];
+        for (name, img, (lo, hi), vertical) in views {
+            let results = scanner
+                .scan_frame(img.as_raw(), img.width(), img.height(), PixelFormat::Luma)
+                .unwrap_or_else(|e| panic!("{ours:?} {name}: {e}"));
+            let r = &results[0];
+            assert_eq!(r.format, ours, "{name}");
+            let along: Vec<f32> = r
+                .points
+                .iter()
+                .map(|p| if vertical { p.y } else { p.x })
+                .collect();
+            let (min, max) = along
+                .iter()
+                .fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
+            assert!(
+                (min - lo).abs() <= 3.0 && (max - hi).abs() <= 3.0,
+                "{ours:?} {name}: points {min}..{max}, symbol {lo}..{hi}"
+            );
+        }
+    }
+}
