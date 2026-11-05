@@ -69,6 +69,15 @@ impl Roi {
     }
 }
 
+/// `true` when a code of `format` may be reported under the `formats` option:
+/// listed formats only, or anything but `Unknown` when no list is given.
+pub(crate) fn format_accepted(formats: Option<&[BarcodeFormat]>, format: BarcodeFormat) -> bool {
+    match formats {
+        Some(allowed) if !allowed.is_empty() => allowed.contains(&format),
+        _ => format != BarcodeFormat::Unknown,
+    }
+}
+
 /// Configuration for the scanner and scan sessions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]

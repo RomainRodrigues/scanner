@@ -9,7 +9,7 @@
 // with many slow cores (Galaxy A14: decode ~125 ms) the pool multiplies the
 // frame rate.
 import { DecoderCore, SessionCore, compileWasm, defaultWasmUrl, loadWasm } from './core.js';
-import type { FramePlan, FrameReport } from './core.js';
+import type { FrameOutcome, FramePlan, FrameReport } from './core.js';
 import type { WorkerRequest, WorkerResponse } from './protocol.js';
 import type { PixelFormat } from './wasm/scanner_wasm.js';
 import type { AssetOptions, Detection, EngineOptions } from './types.js';
@@ -28,8 +28,24 @@ export interface Engine {
   /** Frames that can be decoded at the same time (number of workers). */
   readonly concurrency: number;
   configure(options: EngineOptions): Promise<void>;
-  /** Decode a camera frame. `buffer` is transferred and returned in the reply. */
-  processFrame(buffer: ArrayBuffer, width: number, height: number, format: PixelFormat): Promise<FrameReply>;
+  /**
+   * Decode a camera frame. `buffer` is transferred and returned in the reply.
+   * `fastPath: false` runs the fallback strategy only, for a frame the
+   * native `BarcodeDetector` already searched without finding anything.
+   */
+  processFrame(
+    buffer: ArrayBuffer,
+    width: number,
+    height: number,
+    format: PixelFormat,
+    fastPath?: boolean,
+  ): Promise<FrameReply>;
+  /**
+   * Record codes read by the native `BarcodeDetector` in a frame: same
+   * format filter, multi-frame confirmation and de-duplication as decoded
+   * frames. Points are returned as given.
+   */
+  commitExternal(codes: Detection[], elapsedMs: number): Promise<FrameOutcome>;
   /** One-shot scan of a still image, running every strategy. */
   scanImage(
     buffer: ArrayBuffer,
@@ -186,10 +202,11 @@ class WorkerPoolEngine implements Engine {
     width: number,
     height: number,
     format: PixelFormat,
+    fastPath = true,
   ): Promise<FrameReply> {
     if (!this.configured) throw new Error('Engine not configured');
     const generation = this.generation;
-    const plan = this.session.plan();
+    const plan = this.session.plan(fastPath);
     let res: OkResponse;
     try {
       res = await this.idleWorker().ok({ type: 'decode', buffer, width, height, format, plan }, [buffer]);
@@ -203,6 +220,11 @@ class WorkerPoolEngine implements Engine {
       return { results: null, live: [], decodeMs: 0, buffer: returned };
     }
     return { ...this.session.commit(res.report), buffer: returned };
+  }
+
+  async commitExternal(codes: Detection[], elapsedMs: number) {
+    if (!this.configured) throw new Error('Engine not configured');
+    return this.session.commitExternal(codes, elapsedMs);
   }
 
   async scanImage(
@@ -265,7 +287,10 @@ class InlineEngine implements Engine {
   constructor(readonly version: string) {}
 
   async configure(options: EngineOptions) {
+    // Same configuration for both: a plan is an index in the decoder's list
+    // of fallback strategies (as with workers).
     this.session.configure(options);
+    this.decoder.configure(options);
   }
 
   async processFrame(
@@ -273,8 +298,21 @@ class InlineEngine implements Engine {
     width: number,
     height: number,
     format: PixelFormat,
+    fastPath = true,
   ): Promise<FrameReply> {
-    return { ...this.session.process(new Uint8Array(buffer), width, height, format), buffer };
+    const plan = this.session.plan(fastPath);
+    let report: FrameReport;
+    try {
+      report = this.decoder.decode(new Uint8Array(buffer), width, height, format, plan);
+    } catch (err) {
+      this.session.commit(emptyReport(plan));
+      throw err;
+    }
+    return { ...this.session.commit(report), buffer };
+  }
+
+  async commitExternal(codes: Detection[], elapsedMs: number) {
+    return this.session.commitExternal(codes, elapsedMs);
   }
 
   async scanImage(

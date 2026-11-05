@@ -1,7 +1,7 @@
 // BarcodeReader: camera preview + frame pipeline + engine, wired together.
 import { capabilities, listCameras, openCamera, rememberCamera, setTorch, setZoom } from './camera.js';
 import { pickEngineOptions } from './core.js';
-import { createEngine, type Engine } from './engine.js';
+import { createEngine, type Engine, type FrameReply } from './engine.js';
 import { Feedback } from './feedback.js';
 import {
   clampRegion,
@@ -11,11 +11,23 @@ import {
   regionToVideoRect,
   videoToElement,
 } from './geometry.js';
-import { CanvasGrabber, createGrabber, type FrameGrabber } from './grabber.js';
+import { CanvasGrabber, createGrabber, type FrameGrabber, type Rect } from './grabber.js';
+import type { FrameOutcome } from './core.js';
+import { NativeDetector } from './native.js';
 import { Preview } from './overlay.js';
 import type { Detection, EngineOptions, ReaderEvents, ReaderOptions, ReaderStats, Region } from './types.js';
 
 const DEFAULT_REGION: Region = { x: 0.1, y: 0.2, width: 0.8, height: 0.6 };
+
+/**
+ * With the native detector, delay between two engine frames while the
+ * native decoder finds nothing (~3 fallbacks per second). A code that only
+ * the fallbacks read is still found within a couple of seconds (the
+ * strategies share CPU time, the cheap Linear one runs most often), while
+ * the workers stay idle most of the time. After a frame where the engine saw
+ * a code, the next one is immediate: a 1D code needs a second read.
+ */
+const FALLBACK_INTERVAL_MS = 300;
 
 /** A frame read from the video, waiting for (or being decoded by) the engine. */
 interface GrabbedFrame {
@@ -23,10 +35,12 @@ interface GrabbedFrame {
   width: number;
   height: number;
   /** Region of the video the frame was cropped from (to map points back). */
-  rect: ReturnType<typeof regionToVideoRect>;
+  rect: Rect;
   grabMs: number;
   /** Grab order: decodes finish out of order when several workers run. */
   seq: number;
+  /** Run the engine's fast path (`false`: the native detector already searched this frame). */
+  fastPath: boolean;
 }
 
 type Listener<T> = (payload: T) => void;
@@ -55,8 +69,20 @@ export class BarcodeReader {
   private engineOptions: EngineOptions;
   private running = false;
   private paused = false;
-  /** A grab (GPU readback) is in progress. */
+  /** A frame is being acquired: grab (GPU readback) and native detection. */
   private grabbing = false;
+  /** Native `BarcodeDetector` used as the fast path, when enabled and available. */
+  private native: NativeDetector | undefined;
+  /** Bumped when the native detector is replaced: results of the old one are dropped. */
+  private nativeGeneration = 0;
+  /** The native detector failed once: not used again by this reader. */
+  private nativeFailed = false;
+  /** Native detector active: a fallback-only frame is being grabbed or decoded. */
+  private fallbackInFlight = false;
+  /** Native detector active: earliest time of the next fallback-only frame. */
+  private nextFallbackAt = 0;
+  /** Which decoder drew the current highlights: each one only clears its own. */
+  private highlightSource: 'native' | 'engine' | null = null;
   /** Frames being decoded (at most `engine.concurrency`). */
   private decoding = 0;
   /** Sequence number of the last grabbed frame, and of the last one drawn. */
@@ -77,13 +103,15 @@ export class BarcodeReader {
   private torchOn = false;
   private buffers: ArrayBuffer[] = [];
   private frameHandle = 0;
-  private perf = { frames: 0, since: 0, fps: 0, decodeMs: 0, grabMs: 0, w: 0, h: 0 };
+  private perf = { frames: 0, since: 0, fps: 0, decodeMs: 0, grabMs: 0, nativeMs: 0, w: 0, h: 0 };
 
   private constructor(
     private engine: Engine,
     private options: ReaderOptions,
     host: HTMLElement,
+    native: NativeDetector | undefined,
   ) {
+    this.native = native;
     this.region = clampRegion(options.regionOfInterest ?? DEFAULT_REGION);
     this.engineOptions = pickEngineOptions(options);
     this.preview = new Preview(host, options.overlay);
@@ -101,8 +129,10 @@ export class BarcodeReader {
       typeof options.host === 'string' ? document.querySelector<HTMLElement>(options.host) : options.host;
     if (!host) throw new Error(`BarcodeReader: host element not found (${String(options.host)})`);
     const engine = await createEngine(options);
-    await engine.configure(pickEngineOptions(options));
-    return new BarcodeReader(engine, options, host);
+    const engineOptions = pickEngineOptions(options);
+    await engine.configure(engineOptions);
+    const native = await createNative(options, engineOptions);
+    return new BarcodeReader(engine, options, host, native);
   }
 
   /** Video input devices (labels are empty until permission is granted). */
@@ -134,6 +164,8 @@ export class BarcodeReader {
       backend: this.grabber.kind,
       worker: this.engine.inWorker,
       workers: this.engine.concurrency,
+      native: this.native !== undefined,
+      nativeMs: this.perf.nativeMs,
     };
   }
 
@@ -282,7 +314,11 @@ export class BarcodeReader {
   async configure(options: EngineOptions): Promise<void> {
     this.assertAlive();
     this.engineOptions = { ...this.engineOptions, ...options };
+    // Detections in flight were made for the old formats: dropped.
+    const generation = ++this.nativeGeneration;
     await this.engine.configure(this.engineOptions);
+    const native = this.nativeFailed ? undefined : await createNative(this.options, this.engineOptions);
+    if (generation === this.nativeGeneration) this.native = native;
   }
 
   /** Allow `text` to be reported again right away. */
@@ -352,13 +388,14 @@ export class BarcodeReader {
    * Back-pressure: at most one grab in flight and one frame waiting for a
    * free worker. While a frame waits, no new grab starts, so frames are
    * skipped, never queued, and the waiting frame is at most one decode old.
+   * The native detection is part of the grab stage, so the same rule keeps
+   * at most one `detect()` in flight.
    */
   private tick(): void {
     if (!this.running) return;
     if (!this.grabbing && !this.pending && !this.paused && this.preview.video.videoWidth > 0) {
       this.grabbing = true;
-      this.grabFrame()
-        .then((frame) => this.enqueue(frame))
+      this.acquire()
         .catch((err) => this.handleFrameError(err))
         .finally(() => (this.grabbing = false));
     }
@@ -366,11 +403,84 @@ export class BarcodeReader {
     this.schedule();
   }
 
-  private async grabFrame(): Promise<GrabbedFrame> {
+  /**
+   * Grab stage. With the native `BarcodeDetector`, the frame is searched
+   * natively first, straight from the `<video>` (Chrome reads it outside the
+   * page's threads): no grab of our own. Codes it finds are committed right
+   * away. When it finds nothing, the engine gets a frame **from time to
+   * time** (`FALLBACK_INTERVAL_MS`), without its fast path, for one fallback
+   * strategy: the safety net for what the native decoder has no
+   * preprocessing for (laser engraving, light-on-dark codes, `micro_qr`…).
+   * Grabbing and decoding every frame as well would double the reads of the
+   * frame and keep the workers busy on frames the native decoder handles,
+   * costing battery and CPU it also needs.
+   */
+  private async acquire(): Promise<void> {
+    const native = this.native;
+    const rect = this.videoRect();
+    if (!native) {
+      this.enqueue(await this.grabFrame(rect, true));
+      return;
+    }
+    const generation = this.nativeGeneration;
+    const t0 = performance.now();
+    let codes: Detection[];
+    try {
+      codes = await native.detect(this.preview.video, rect);
+    } catch (err) {
+      this.disableNative(err);
+      this.enqueue(await this.grabFrame(rect, true));
+      return;
+    }
+    const nativeMs = performance.now() - t0;
+    // Replaced by `configure()` meanwhile: results made for the old formats.
+    if (generation !== this.nativeGeneration || !this.running || this.paused) return;
+
+    if (codes.length === 0 && this.fallbackDue()) {
+      this.fallbackInFlight = true;
+      this.updatePerf({ nativeMs, counted: false });
+      try {
+        this.enqueue(await this.grabFrame(rect, false));
+      } catch (err) {
+        this.fallbackInFlight = false;
+        throw err;
+      }
+      return;
+    }
+    const outcome = await this.engine.commitExternal(codes, nativeMs);
+    if (generation !== this.nativeGeneration || !this.running || this.paused) return;
+    this.failures = 0;
+    this.updatePerf({ nativeMs });
+    // Native points are already in video pixels.
+    this.present(outcome, ++this.grabbed, 'native', (d) => d);
+  }
+
+  /** The engine may decode a frame for its fallbacks (native detector active). */
+  private fallbackDue(): boolean {
+    return !this.fallbackInFlight && performance.now() >= this.nextFallbackAt;
+  }
+
+  /** The native decoder threw: decode with the engine only from now on. */
+  private disableNative(err: unknown): void {
+    if (this.nativeFailed) return;
+    // Like the WebGL → Canvas 2D fallback: the reader keeps working, so this
+    // is a warning, not an `error` event.
+    console.warn('[scanner] native BarcodeDetector failed, decoding with the engine only:', err);
+    this.nativeFailed = true;
+    this.native = undefined;
+    this.nativeGeneration++;
+  }
+
+  /** The region of interest, in video pixels. */
+  private videoRect(): Rect {
     const video = this.preview.video;
     const ew = this.preview.width || video.videoWidth;
     const eh = this.preview.height || video.videoHeight;
-    const rect = regionToVideoRect(this.region, video.videoWidth, video.videoHeight, ew, eh);
+    return regionToVideoRect(this.region, video.videoWidth, video.videoHeight, ew, eh);
+  }
+
+  private async grabFrame(rect: Rect, fastPath: boolean): Promise<GrabbedFrame> {
+    const video = this.preview.video;
     const { width, height } = outputSize(rect, this.options.processing?.maxDimension ?? 1024);
 
     const t0 = performance.now();
@@ -381,12 +491,21 @@ export class BarcodeReader {
       this.buffers.push(buffer);
       throw new GrabError(err);
     }
-    return { buffer, width, height, rect, grabMs: performance.now() - t0, seq: ++this.grabbed };
+    return {
+      buffer,
+      width,
+      height,
+      rect,
+      grabMs: performance.now() - t0,
+      seq: ++this.grabbed,
+      fastPath,
+    };
   }
 
   private enqueue(frame: GrabbedFrame): void {
     if (!this.running || this.paused) {
       this.buffers.push(frame.buffer);
+      if (!frame.fastPath) this.fallbackInFlight = false;
     } else if (this.decoding >= this.engine.concurrency) {
       this.pending = frame;
     } else {
@@ -408,31 +527,58 @@ export class BarcodeReader {
 
   private async decodeFrame(frame: GrabbedFrame): Promise<void> {
     const { width, height, rect } = frame;
-    const reply = await this.engine.processFrame(frame.buffer, width, height, 'luma');
+    let reply: FrameReply;
+    try {
+      reply = await this.engine.processFrame(frame.buffer, width, height, 'luma', frame.fastPath);
+    } finally {
+      if (!frame.fastPath) {
+        this.fallbackInFlight = false;
+        this.nextFallbackAt = performance.now() + FALLBACK_INTERVAL_MS;
+      }
+    }
     this.buffers.push(reply.buffer);
     if (!this.running) return;
     this.failures = 0;
+    if (!frame.fastPath && reply.live.length > 0) this.nextFallbackAt = 0;
 
-    this.updatePerf(frame.grabMs, reply.decodeMs, width, height);
-
-    const video = this.preview.video;
-    const vw = video.videoWidth;
-    const vh = video.videoHeight;
-    const toVideo = (d: Detection): Detection => ({
+    this.updatePerf({ grab: frame, decodeMs: reply.decodeMs });
+    // Fallback-only frames (native detector active) are decoded one at a
+    // time, so they cannot finish out of order: numbered when they finish,
+    // after the native frames that ran meanwhile.
+    const seq = frame.fastPath ? frame.seq : ++this.grabbed;
+    this.present(reply, seq, 'engine', (d) => ({
       ...d,
       points: decoderToVideo(d.points, rect, width, height),
-    });
-    // An older frame finishing after a newer one must not move the highlights back.
-    if (frame.seq > this.drawn) {
-      this.drawn = frame.seq;
-      const live = reply.live.map(toVideo);
+    }));
+  }
+
+  /** Draw the live codes of frame `seq` and report the new ones, mapped to video pixels by `toVideo`. */
+  private present(
+    outcome: Pick<FrameOutcome, 'results' | 'live'>,
+    seq: number,
+    source: 'native' | 'engine',
+    toVideo: (d: Detection) => Detection,
+  ): void {
+    // An older frame finishing after a newer one must not move the highlights
+    // back. With the native detector, a decoder that found nothing does not
+    // erase what the other one drew: the native decoder would otherwise
+    // erase, ~30 times per second, a code only the fallbacks can read.
+    const owns = outcome.live.length > 0 || this.highlightSource === source || !this.highlightSource;
+    if (seq > this.drawn && owns) {
+      this.drawn = seq;
+      this.highlightSource = outcome.live.length > 0 ? source : null;
+      const video = this.preview.video;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
       const layout = coverLayout(vw, vh, this.preview.width || vw, this.preview.height || vh);
-      this.preview.setDetections(live.map((d) => d.points.map((p) => videoToElement(p, layout))));
+      this.preview.setDetections(
+        outcome.live.map((d) => toVideo(d).points.map((p) => videoToElement(p, layout))),
+      );
     }
 
-    if (reply.results && reply.results.length > 0) {
+    if (outcome.results && outcome.results.length > 0) {
       this.feedback.play();
-      this.emit('detected', reply.results.map(toVideo));
+      this.emit('detected', outcome.results.map(toVideo));
     }
   }
 
@@ -461,13 +607,26 @@ export class BarcodeReader {
     return new ArrayBuffer(size);
   }
 
-  private updatePerf(grabMs: number, decodeMs: number, w: number, h: number): void {
+  /**
+   * Account for a processed frame. `counted: false` for a native miss handed
+   * to the engine: that frame is counted once, when the engine is done.
+   */
+  private updatePerf(s: {
+    grab?: GrabbedFrame;
+    decodeMs?: number;
+    nativeMs?: number;
+    counted?: boolean;
+  }): void {
     const p = this.perf;
-    p.frames++;
-    p.grabMs = p.grabMs ? p.grabMs * 0.9 + grabMs * 0.1 : grabMs;
-    p.decodeMs = p.decodeMs ? p.decodeMs * 0.9 + decodeMs * 0.1 : decodeMs;
-    p.w = w;
-    p.h = h;
+    const ema = (avg: number, v: number) => (avg ? avg * 0.9 + v * 0.1 : v);
+    if (s.counted !== false) p.frames++;
+    if (s.grab) {
+      p.grabMs = ema(p.grabMs, s.grab.grabMs);
+      p.w = s.grab.width;
+      p.h = s.grab.height;
+    }
+    if (s.decodeMs !== undefined) p.decodeMs = ema(p.decodeMs, s.decodeMs);
+    if (s.nativeMs !== undefined) p.nativeMs = ema(p.nativeMs, s.nativeMs);
     const now = performance.now();
     if (now - p.since >= 1000) {
       p.fps = (p.frames * 1000) / (now - p.since);
@@ -516,6 +675,15 @@ class GrabError extends Error {
   constructor(override readonly cause: unknown) {
     super(cause instanceof Error ? cause.message : String(cause));
   }
+}
+
+/** The native detector when `processing.nativeDetector` is `'auto'` and it can serve `engineOptions`. */
+function createNative(
+  options: ReaderOptions,
+  engineOptions: EngineOptions,
+): Promise<NativeDetector | undefined> {
+  if (options.processing?.nativeDetector !== 'auto') return Promise.resolve(undefined);
+  return NativeDetector.create(engineOptions.formats);
 }
 
 function waitForVideo(video: HTMLVideoElement): Promise<void> {

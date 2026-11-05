@@ -4,7 +4,7 @@
 //! It supports QR Code, Data Matrix, Aztec, PDF417, Code 128/39/93, EAN-13/8,
 //! UPC-A/E, ITF, Codabar, and more.
 
-use crate::config::ScannerConfig;
+use crate::config::{format_accepted, ScannerConfig};
 use crate::error::ScanError;
 use crate::result::{BarcodeFormat, ScanResult};
 use image::GrayImage;
@@ -161,10 +161,7 @@ impl RxingDecoder {
             .map(ScanResult::from_rxing)
             // Post-decode format filter: rxing's PossibleFormats hint is not
             // strictly enforced, so this is the authoritative check.
-            .filter(|r| match &self.allowed_formats {
-                Some(allowed) if !allowed.is_empty() => allowed.contains(&r.format),
-                _ => r.format != BarcodeFormat::Unknown,
-            })
+            .filter(|r| format_accepted(self.allowed_formats.as_deref(), r.format))
             .take(self.max_results)
             .collect();
 

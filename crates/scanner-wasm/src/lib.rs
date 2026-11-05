@@ -28,6 +28,10 @@
 //! decoder.frameBuffer(width * height).set(lumaPixels);
 //! const report = decoder.decodeFrameBuffer(width, height, "luma", plan);
 //! const fresh2 = session.commit(report);               // main thread
+//!
+//! // Codes read by the native BarcodeDetector: same confirmation and dedup
+//! const fresh3 = session.commitExternal(nativeResults, elapsedMs);
+//! const fallbackOnly = session.planFallbackOnly();     // frames it missed
 //! ```
 
 use scanner_core::config::Roi as CoreRoi;
@@ -148,12 +152,21 @@ pub struct FramePlan {
     #[tsify(optional)]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub fallback: Option<u32>,
+    /// Run the fallback only (plans from `planFallbackOnly()`).
+    #[tsify(optional)]
+    #[serde(
+        rename = "skipFastPath",
+        skip_serializing_if = "std::ops::Not::not",
+        default
+    )]
+    pub skip_fast_path: bool,
 }
 
 impl From<CoreFramePlan> for FramePlan {
     fn from(p: CoreFramePlan) -> Self {
         Self {
             fallback: p.fallback.and_then(|i| u32::try_from(i).ok()),
+            skip_fast_path: p.skip_fast_path,
         }
     }
 }
@@ -162,6 +175,7 @@ impl From<FramePlan> for CoreFramePlan {
     fn from(p: FramePlan) -> Self {
         Self {
             fallback: p.fallback.map(|i| i as usize),
+            skip_fast_path: p.skip_fast_path,
         }
     }
 }
@@ -541,6 +555,37 @@ impl WasmScanSession {
             Some(results) => results_to_js(&results),
             None => JsValue::NULL,
         }
+    }
+
+    /// Like `plan`, for a frame the browser's native `BarcodeDetector` already
+    /// searched without finding anything: the decoder runs the planned
+    /// fallback strategy only, without its own fast path.
+    #[wasm_bindgen(js_name = planFallbackOnly)]
+    pub fn plan_fallback_only(&mut self) -> FramePlan {
+        self.inner.plan_fallback_only().into()
+    }
+
+    /// Record codes decoded by another engine (the browser's native
+    /// `BarcodeDetector`), in whatever coordinates the caller uses. They get
+    /// the same format filter, multi-frame confirmation and de-duplication
+    /// as decoded frames; the strategy scheduling is not affected. Returns
+    /// the **new** codes, or `null`.
+    ///
+    /// # Errors
+    /// When `results` is not an array of `ScanResult`.
+    #[wasm_bindgen(js_name = commitExternal, unchecked_return_type = "ScanResult[] | null")]
+    pub fn commit_external(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "ScanResult[]")] results: JsValue,
+        #[wasm_bindgen(js_name = elapsedMs)] elapsed_ms: f64,
+    ) -> Result<JsValue, JsError> {
+        let results: Vec<ScanResult> = serde_wasm_bindgen::from_value(results)
+            .map_err(|e| JsError::new(&format!("Invalid results: {e}")))?;
+        let results = results.into_iter().map(Into::into).collect();
+        Ok(match self.inner.commit_external(results, elapsed_ms) {
+            Some(fresh) => results_to_js(&fresh),
+            None => JsValue::NULL,
+        })
     }
 
     fn process(&mut self, data: &[u8], width: u32, height: u32, format: PixelFormat) -> JsValue {

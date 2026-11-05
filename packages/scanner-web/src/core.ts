@@ -6,6 +6,8 @@
 // - `SessionCore`: the session. Cheap calls (`plan`, `commit`), main thread.
 // - `DecoderCore`: the expensive decoding, one per Web Worker.
 // The inline engine (no Worker support) uses both on the main thread.
+// Codes read by the browser's native `BarcodeDetector` enter the session with
+// `SessionCore.commitExternal` (see `native.ts`).
 import init, { WasmFrameDecoder, WasmScanner, WasmScanSession, version } from './wasm/scanner_wasm.js';
 import type { FramePlan, FrameReport, PixelFormat, ScanResult, WasmScanConfig } from './wasm/scanner_wasm.js';
 import type { Detection, EngineOptions } from './types.js';
@@ -72,6 +74,12 @@ export function toDetection(r: ScanResult): Detection {
   return d;
 }
 
+function toScanResult(d: Detection): ScanResult {
+  const r: ScanResult = { text: d.text, format: d.format, points: d.points, timestampMs: d.timestamp };
+  if (d.rawBytes) r.rawBytes = d.rawBytes;
+  return r;
+}
+
 export interface FrameOutcome {
   /** New codes, or `null`. */
   results: Detection[] | null;
@@ -89,9 +97,14 @@ export class SessionCore {
     this.session = new WasmScanSession(streamConfig(options));
   }
 
-  /** Strategy plan of the next frame, for a `DecoderCore` configured the same way. */
-  plan(): FramePlan {
-    return this.active().plan();
+  /**
+   * Strategy plan of the next frame, for a `DecoderCore` configured the same
+   * way. `fastPath: false` when the native `BarcodeDetector` already searched
+   * the frame: the decoder then runs the fallback strategy only.
+   */
+  plan(fastPath = true): FramePlan {
+    const session = this.active();
+    return fastPath ? session.plan() : session.planFallbackOnly();
   }
 
   /** Record a decoded frame; returns the new codes and the live ones. */
@@ -102,16 +115,16 @@ export class SessionCore {
     return { results, live: results ?? session.lastDetections.map(toDetection), decodeMs: report.elapsedMs };
   }
 
-  /** Decode on this thread (inline engine): plan, decode and commit at once. */
-  process(pixels: Uint8Array, width: number, height: number, format: PixelFormat): FrameOutcome {
+  /**
+   * Record codes read by the native `BarcodeDetector`: same format filter,
+   * confirmation and de-duplication as decoded frames. Points are kept as
+   * given (video pixels).
+   */
+  commitExternal(codes: Detection[], elapsedMs: number): FrameOutcome {
     const session = this.active();
-    // Write straight into WASM memory: avoids one more copy of the frame.
-    session.frameBuffer(pixels.length).set(pixels);
-    const t0 = performance.now();
-    const fresh = session.processFrameBuffer(width, height, format);
-    const decodeMs = performance.now() - t0;
+    const fresh = session.commitExternal(codes.map(toScanResult), elapsedMs);
     const results = fresh ? fresh.map(toDetection) : null;
-    return { results, live: results ?? session.lastDetections.map(toDetection), decodeMs };
+    return { results, live: results ?? session.lastDetections.map(toDetection), decodeMs: elapsedMs };
   }
 
   reset(): void {

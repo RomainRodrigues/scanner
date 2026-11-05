@@ -23,6 +23,15 @@
 //! [`plan`](ScanSession::plan) → [`FrameDecoder::decode`] (any thread) →
 //! [`commit`](ScanSession::commit). See the [`decoder`](super::decoder) module.
 //!
+//! ## Codes decoded by another engine
+//!
+//! Codes read outside this crate (the browser's native `BarcodeDetector`)
+//! enter the session through [`commit_external`](ScanSession::commit_external):
+//! they get the same multi-frame confirmation, de-duplication and format
+//! filter as the codes decoded here. When that engine plays the role of the
+//! fast path, the frames it found nothing in are decoded with
+//! [`plan_fallback_only`](ScanSession::plan_fallback_only).
+//!
 //! # Example
 //! ```no_run
 //! use scanner_core::{ScanSession, ScannerConfig, PixelFormat};
@@ -38,7 +47,7 @@
 //! }
 //! ```
 
-use crate::config::ScannerConfig;
+use crate::config::{format_accepted, ScannerConfig};
 use crate::frame::{Frame, PixelFormat};
 use crate::realtime::decoder::{FrameDecoder, FramePlan, FrameReport};
 use crate::realtime::scheduler::FallbackScheduler;
@@ -138,6 +147,20 @@ impl ScanSession {
         self.stats.frames_submitted += 1;
         FramePlan {
             fallback: self.scheduler.plan(),
+            skip_fast_path: false,
+        }
+    }
+
+    /// Like [`plan`](Self::plan), for a frame whose fast pass was already done
+    /// by another decoder (the browser's native `BarcodeDetector`) and found
+    /// nothing: the frame runs its fallback strategy only.
+    ///
+    /// The fallbacks keep sharing CPU time as usual; their measured cost is
+    /// just no longer inflated by a fast path.
+    pub fn plan_fallback_only(&mut self) -> FramePlan {
+        FramePlan {
+            skip_fast_path: true,
+            ..self.plan()
         }
     }
 
@@ -145,36 +168,65 @@ impl ScanSession {
     /// de-duplication. Returns the **new** codes, like
     /// [`process_frame`](Self::process_frame).
     pub fn commit(&mut self, report: FrameReport) -> Option<Vec<ScanResult>> {
-        self.stats.frames_scanned += 1;
-        let n = self.stats.frames_scanned as f64;
-        self.stats.last_scan_time_ms = report.elapsed_ms;
-        self.stats.avg_scan_time_ms =
-            (self.stats.avg_scan_time_ms * (n - 1.0) + report.elapsed_ms) / n;
-
         if let Some(index) = report.plan.fallback {
             if report.fallback_ran {
-                // Charged with the whole frame (fast path included): that is
-                // the time the fallback costs per scanned frame.
+                // Charged with the whole frame (fast path included, unless the
+                // plan skipped it): the time the fallback costs per frame.
                 self.scheduler
                     .record(index, report.elapsed_ms / 1000.0, report.fallback_read);
             } else {
                 self.scheduler.cancel(index);
             }
         }
+        self.record(report.results, report.elapsed_ms)
+    }
 
-        if report.results.is_empty() {
+    /// Statistics, confirmation and de-duplication of a decoded frame.
+    fn record(&mut self, results: Vec<ScanResult>, elapsed_ms: f64) -> Option<Vec<ScanResult>> {
+        self.stats.frames_scanned += 1;
+        let n = self.stats.frames_scanned as f64;
+        self.stats.last_scan_time_ms = elapsed_ms;
+        self.stats.avg_scan_time_ms = (self.stats.avg_scan_time_ms * (n - 1.0) + elapsed_ms) / n;
+
+        if results.is_empty() {
             self.last_detections.clear();
             return None;
         }
         self.stats.frames_with_detection += 1;
-        self.last_detections.clone_from(&report.results);
-        let new_results = self.tracker.filter_new(report.results);
+        self.last_detections.clone_from(&results);
+        let new_results = self.tracker.filter_new(results);
         if new_results.is_empty() {
             None
         } else {
             self.stats.codes_detected += new_results.len() as u64;
             Some(new_results)
         }
+    }
+
+    /// Record the codes another engine decoded in a frame (the browser's
+    /// native `BarcodeDetector`), in the coordinates the caller wants back.
+    ///
+    /// They go through the same filters as the codes decoded by this crate:
+    /// codes of a format the configuration does not ask for are dropped, 1D
+    /// codes are only reported once confirmed on several frames, and
+    /// duplicates are filtered. Reads of the same code by both engines count
+    /// towards the same confirmation. The strategy scheduler is not touched:
+    /// no plan was made for this frame and no fallback ran.
+    ///
+    /// Call it for frames where the other engine found codes; frames where
+    /// it found nothing are decoded here with
+    /// [`plan_fallback_only`](Self::plan_fallback_only) and committed with
+    /// [`commit`](Self::commit). Returns the **new** codes, like `commit`.
+    pub fn commit_external(
+        &mut self,
+        mut results: Vec<ScanResult>,
+        elapsed_ms: f64,
+    ) -> Option<Vec<ScanResult>> {
+        let formats = self.decoder.config().formats.as_deref();
+        results.retain(|r| format_accepted(formats, r.format));
+        results.truncate(self.decoder.config().max_results.max(1));
+        self.stats.frames_submitted += 1;
+        self.record(results, elapsed_ms)
     }
 
     /// Every code decoded in the last scanned frame, **including** codes that
@@ -218,6 +270,7 @@ impl ScanSession {
 mod tests {
     use super::*;
     use crate::config::ScannerConfig;
+    use crate::result::BarcodeFormat;
 
     #[test]
     fn plan_and_commit_match_process_frame() {
@@ -280,5 +333,110 @@ mod tests {
         }
         assert_eq!(session.stats().frames_scanned, 10);
         assert_eq!(session.skip_interval(), 1);
+    }
+
+    fn code(text: &str, format: BarcodeFormat) -> ScanResult {
+        ScanResult {
+            text: text.into(),
+            format,
+            raw_bytes: None,
+            points: Vec::new(),
+            timestamp_ms: 0,
+        }
+    }
+
+    fn session(formats: Option<Vec<BarcodeFormat>>) -> ScanSession {
+        ScanSession::new(ScannerConfig {
+            adaptive_throttle: false,
+            formats,
+            ..ScannerConfig::default()
+        })
+    }
+
+    #[test]
+    fn external_codes_are_confirmed_like_decoded_ones() {
+        let mut s = session(None);
+        let qr = || vec![code("hello", BarcodeFormat::QrCode)];
+        let ean = || vec![code("5901234123457", BarcodeFormat::Ean13)];
+        let itf = || vec![code("12345670", BarcodeFormat::Itf)];
+
+        // 2D: one read. Then de-duplicated.
+        assert_eq!(s.commit_external(qr(), 5.0).map(|r| r.len()), Some(1));
+        assert!(s.commit_external(qr(), 5.0).is_none());
+        assert_eq!(
+            s.last_detections().len(),
+            1,
+            "still drawn while in cooldown"
+        );
+
+        // Strong 1D: two reads; weak 1D: three.
+        assert!(s.commit_external(ean(), 5.0).is_none());
+        assert!(s.commit_external(ean(), 5.0).is_some());
+        assert!(s.commit_external(itf(), 5.0).is_none());
+        assert!(s.commit_external(itf(), 5.0).is_none());
+        assert!(s.commit_external(itf(), 5.0).is_some());
+
+        assert!(s.commit_external(Vec::new(), 5.0).is_none());
+        assert!(s.last_detections().is_empty());
+        assert_eq!(s.stats().frames_scanned, 8);
+        assert_eq!(s.stats().codes_detected, 3);
+    }
+
+    #[test]
+    fn external_and_decoded_reads_share_the_confirmation() {
+        let mut s = session(None);
+        let decoder = FrameDecoder::new(s.decoder.config().clone());
+        let ean = code("5901234123457", BarcodeFormat::Ean13);
+
+        assert!(s.commit_external(vec![ean.clone()], 5.0).is_none());
+        // Second read by this crate's decoder, on a fallback-only frame.
+        let plan = s.plan_fallback_only();
+        let mut report = decoder
+            .decode(&[255; 64 * 64], 64, 64, PixelFormat::Luma, plan)
+            .expect("valid frame");
+        report.results = vec![ean];
+        let fresh = s.commit(report).expect("confirmed by the second read");
+        assert_eq!(fresh[0].text, "5901234123457");
+    }
+
+    #[test]
+    fn external_codes_are_filtered_by_format_and_count() {
+        let mut s = session(Some(vec![BarcodeFormat::QrCode]));
+        let read = vec![
+            code("5901234123457", BarcodeFormat::Ean13),
+            code("a", BarcodeFormat::QrCode),
+            code("b", BarcodeFormat::QrCode),
+        ];
+        // Only QR codes are asked for, and one code per frame (`max_results`).
+        let fresh = s.commit_external(read, 5.0).expect("the QR code");
+        assert_eq!(fresh.len(), 1);
+        assert_eq!(fresh[0].text, "a");
+
+        let mut all = session(None);
+        let unknown = vec![code("?", BarcodeFormat::Unknown)];
+        assert!(all.commit_external(unknown, 5.0).is_none());
+    }
+
+    #[test]
+    fn external_commits_leave_the_scheduler_alone() {
+        let mut a = session(None);
+        let mut b = session(None);
+        for _ in 0..5 {
+            a.commit_external(vec![code("x", BarcodeFormat::QrCode)], 50.0);
+        }
+        // Same sequence of plans as a session that never saw external codes.
+        for _ in 0..10 {
+            assert_eq!(a.plan(), b.plan());
+        }
+    }
+
+    #[test]
+    fn fallback_only_plans_follow_the_schedule() {
+        let mut a = session(None);
+        let mut b = session(None);
+        let (pa, pb) = (a.plan_fallback_only(), b.plan());
+        assert!(pa.skip_fast_path);
+        assert!(!pb.skip_fast_path);
+        assert_eq!(pa.fallback, pb.fallback);
     }
 }
