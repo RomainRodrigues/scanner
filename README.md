@@ -6,8 +6,10 @@
 
 A barcode and QR code scanner for web apps: a Rust engine compiled to
 WebAssembly, driven by a TypeScript SDK that handles the camera, a WebGL2
-frame pipeline, a Web Worker and the scanning UI. Everything runs on the
-device, with no license key and no network calls.
+frame pipeline, parallel decoding in Web Workers and the scanning UI. Where
+the browser ships a native `BarcodeDetector` (Chrome on Android, macOS,
+ChromeOS), it is used instead of the engine. Everything runs on the device,
+with no license key and no network calls.
 
 ```ts
 import { BarcodeReader } from '@gueshbzh-perso/scanner';
@@ -65,10 +67,11 @@ cargo test --workspace --release
   demo and deploys it to GitHub Pages.
 - **Release** (`.github/workflows/release.yml`): release-please keeps a release PR
   open with the next version and changelog, computed from Conventional Commits;
-  merging it tags the release and publishes the SDK to npm. Versions are never
-  edited by hand.
+  merging it tags the release and publishes the SDK to npm, with provenance, through
+  npm trusted publishing (no stored token). Versions are never edited by hand.
 
-Contributing rules, known pitfalls and conventions: [CLAUDE.md](CLAUDE.md).
+Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Security: [SECURITY.md](SECURITY.md).
+Known pitfalls and project rules (French): [CLAUDE.md](CLAUDE.md).
 French documentation: [DOCUMENTATION_FR.md](DOCUMENTATION_FR.md). Changes: [CHANGELOG.md](CHANGELOG.md).
 
 ## License

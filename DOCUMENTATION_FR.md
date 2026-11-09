@@ -1,7 +1,7 @@
 # 📖 Guide du projet Scanner
 
-Ce document explique l'architecture, les choix techniques face à STRICH, comment
-utiliser le SDK et comment tout tester en local.
+Ce document explique l'architecture, les choix techniques, comment utiliser le SDK
+et comment tout tester en local.
 
 ---
 
@@ -31,16 +31,12 @@ const codes = await scanImage(fichier);   // image fixe
 
 ---
 
-## 🎯 Comment fonctionne STRICH, et ce qu'on a repris
+## 🎯 Choix techniques
 
-STRICH est un SDK commercial (licence payante, clé vérifiée en ligne). D'après sa
-documentation publique, il utilise **WebGL** pour traiter le flux caméra et
-**WebAssembly** pour localiser et décoder les codes, entièrement côté client, avec
-une UI prête à l'emploi (zone de scan, lampe, choix de caméra) et un `PopupScanner`.
-
-Leur force ne vient pas d'un « meilleur décodeur magique » mais du **pipeline autour** :
-ne jamais bloquer l'UI, ne donner au décodeur que les pixels utiles, et répartir
-les traitements coûteux dans le temps. C'est ce qui manquait à l'ancienne version :
+Un scanner web rapide ne tient pas à un « meilleur décodeur magique » mais au
+**pipeline autour** : ne jamais bloquer l'UI, ne donner au décodeur que les pixels
+utiles, et répartir les traitements coûteux dans le temps. C'est ce qui manquait à
+l'ancienne version :
 
 | Problème de la v0.3 | Ce qui a été fait en v0.4 |
 | --- | --- |
@@ -75,27 +71,45 @@ les solutions sont générales (mesures, pas de liste d'appareils) :
 Débit du moteur (benchmark e2e, frames texturées, 4 cœurs) : ~10 fps avec 1 worker →
 ~30-36 fps avec 3 workers.
 
+### Depuis la 0.10 : le `BarcodeDetector` natif du navigateur
+
+Là où il existe (Chrome sur Android, macOS et ChromeOS), le décodeur natif du navigateur
+lit directement le `<video>`, hors des threads de la page : pas de grab, workers au
+repos. Testé sur le Galaxy A14 : très bonne lecture, **quelle que soit l'orientation du
+téléphone**, sans faux positif. Ses codes passent par la même session (confirmations
+1D, anti-doublons). Options :
+
+- `processing.nativeDetector: 'off'` : toujours le moteur WASM seul ;
+- `processing.engineFallback: true` : un filet de sécurité, le moteur décode ~3 images
+  par seconde quand le natif ne trouve rien (gravure laser, ombre, Micro QR). Désactivé
+  par défaut (CPU et batterie).
+
+Sur iPhone, Safari n'expose l'API que derrière un réglage expérimental et n'y détecte
+rien : le moteur WASM fait tout. Détails et cas particuliers : CLAUDE.md.
+
 ### Mesures
 
 - Coût d'une frame **sans code** (le cas le plus fréquent), 1024×432, natif :
   **~168 ms → ~25 ms** par frame analysée (~6,6× plus rapide).
-- Test e2e dans Chromium headless (caméra simulée) : premier code lu en ~150–350 ms
-  après le démarrage de la caméra. Les temps GPU affichés en headless ne sont pas
-  représentatifs (rendu WebGL émulé par le CPU via SwiftShader) : **il faut encore
-  mesurer sur de vrais téléphones**.
+- Test e2e dans Chromium headless (caméra simulée) : premier code lu en ~150–500 ms
+  après le démarrage de la caméra (temps GPU non représentatifs en headless : WebGL
+  émulé par le CPU via SwiftShader).
+- Sur téléphone : iPhone 14 Pro (moteur WASM) 25–30 fps ; Galaxy A14 ~6–7 fps avec le
+  moteur WASM, et lecture fluide avec le `BarcodeDetector` natif (défaut depuis la 0.11).
 
-### Ce qui reste pour vraiment jouer dans la même cour que STRICH
+### Pistes d'amélioration du moteur
 
-0. **Mesurer sur de vrais téléphones** chaque changement de performance (les chiffres
-   ci-dessus viennent d'un PC et de Chromium headless).
+Ce qui compte surtout là où le natif n'existe pas (iPhone, Firefox, ordinateurs) :
+
 1. **Localisation sur GPU** : détecter les zones « qui ressemblent à un code-barres »
    (densité de gradients) dans le shader, puis ne décoder que ces zones. C'est le plus
    gros gain restant, surtout pour les petits codes loin de la caméra.
-2. **Décodeur 1D par lignes de balayage** dédié (au lieu de rxing) : beaucoup plus
-   robuste au flou et aux codes abîmés, c'est là que les SDK commerciaux se distinguent.
+2. **Décodeur 1D par lignes de balayage** dédié (au lieu de rxing) : plus robuste au
+   flou et aux codes abîmés.
 3. **Benchmark sur un vrai jeu d'images** (photos de codes réels, flous, reflets) pour
-   comparer objectivement avec STRICH / ZXing / le `BarcodeDetector` natif.
-4. Un `PopupScanner` (scan en un appel dans une `<dialog>`), et des wrappers React / Vue.
+   mesurer objectivement chaque changement, et comparer le moteur au natif.
+4. Un `PopupScanner` (scan en un appel dans une `<dialog>`), et des wrappers React / Vue
+   publiés (aujourd'hui : composant Vue à copier depuis la démo).
 5. Taille du WASM : voir la feuille de route ci-dessous.
 6. Du SIMD **écrit à la main** dans les boucles chaudes (prétraitements), mesuré.
 
@@ -177,30 +191,39 @@ CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
 
 **Les images de test** (`tests/fixtures/`) sont versionnées : il y en a peu, c'est voulu.
 Les cas difficiles sont **générés directement dans les tests** (encodeurs rxing + flou +
-bruit + textures), ce qui est déterministe et couvre chaque format 1D/2D. Ce qui manque :
-un jeu de **vraies photos** (reflets, codes abîmés, angles) pour un benchmark réaliste.
+bruit + textures), ce qui est déterministe et couvre chaque format 1D/2D. Deux **vraies
+photos** (boucle bovine gravée au laser, étiquette d'aliment dans l'ombre) sont testées en
+scan statique, en session et en e2e. Ce qui manque : davantage de vraies photos (reflets,
+codes abîmés, angles) pour un benchmark réaliste.
 
 ### GitHub Actions
 
 - **CI** (`.github/workflows/ci.yml`, à chaque push sur `main` et chaque pull request) :
   fmt / clippy / tests / doc / `cargo audit` Rust, tests WASM dans Node.js, ESLint +
   Prettier, build du SDK, vérification des types, tests unitaires, tests e2e avec fausse
-  caméra, build de la démo. Aussi appelée par le workflow *Release* sur la PR de release.
+  caméra, build de la démo. Aussi appelée par le workflow *Release* sur la PR de release,
+  dont le résultat est reporté sur la PR (mêmes noms de checks).
 - **Sécurité** : actions épinglées par SHA de commit (Dependabot les met à jour),
   permissions accordées job par job, et le job qui publie sur npm n'installe ni
   n'exécute rien venant de npm (il publie l'archive construite par un autre job).
 - **Pages** (`.github/workflows/pages.yml`, à chaque push sur `main`) : génère la démo
   Nuxt et la publie sur **https://scanner.romrd.fr**.
 
-  À configurer une fois :
-  1. *Settings → Pages → Build and deployment → Source : GitHub Actions*.
-  2. DNS chez le registrar de `romrd.fr` : un enregistrement **CNAME** `scanner` →
-     `romainrodrigues.github.io.`
-  3. *Settings → Pages → Custom domain* : `scanner.romrd.fr`, puis cocher **Enforce HTTPS**
-     une fois le certificat émis (indispensable : la caméra exige HTTPS).
+  Configuration en place :
+  1. *Settings → Pages → Build and deployment → Source : GitHub Actions*, domaine
+     personnalisé `scanner.romrd.fr`.
+  2. DNS chez **Cloudflare** : **CNAME** `scanner` → `romainrodrigues.github.io`, proxifié.
+  3. HTTPS (indispensable : la caméra l'exige) forcé **par Cloudflare** : mode SSL/TLS
+     **Full** (pas *Flexible*, ni *Full (strict)*) et *Always Use HTTPS*. La case
+     *Enforce HTTPS* de GitHub reste grisée tant que le proxy Cloudflare est actif
+     (GitHub ne peut pas émettre son certificat) : c'est normal.
   4. Recommandé : vérifier le domaine `romrd.fr` dans les paramètres du **compte**
      GitHub (*Settings → Pages → Add a domain*, enregistrement TXT) pour qu'aucun autre
      dépôt ne puisse s'approprier le sous-domaine.
+- **Dépôt public**, protégé par : une règle sur `main` (PR obligatoire, fusion par
+  *merge commit*, ni suppression ni force push), Dependabot (alertes et mises à jour de
+  sécurité), le signalement privé des failles (`SECURITY.md`) et l'environnement `npm`
+  limité à `main`. Guide de contribution : `CONTRIBUTING.md`.
 
 Règles de contribution, cas particuliers connus et conventions : [CLAUDE.md](CLAUDE.md).
 
@@ -217,9 +240,10 @@ commit (Conventional Commits) :
    `feat:` → minor ; avant la 1.0, un changement cassant `feat!:` passe aussi en minor),
    met à jour `Cargo.toml`, `packages/scanner-web/package.json`, `CHANGELOG.md` et les
    lockfiles.
-2. Tu relis la PR et le job `release-pr-ci` du workflow *Release* (sa seule CI), puis tu la
-   fusionnes quand tu veux publier → tag `v0.5.0`, release GitHub, et publication du SDK
-   sur npm (avec provenance si le dépôt est public : npm la refuse pour un dépôt privé).
+2. Tu relis la PR et sa CI (lancée par le workflow *Release*, résultat reporté sur la PR),
+   puis tu la fusionnes quand tu veux publier → tag `v0.5.0`, release GitHub, et
+   publication du SDK sur npm, **avec provenance** (le dépôt est public : chaque version
+   est reliée au commit et au workflow qui l'ont produite).
 
 **Configuration en place :** publication par **trusted publishing** (npmjs.com → paquet →
 Settings → Trusted Publisher : dépôt `RomainRodrigues/scanner`, workflow `release.yml`,
@@ -252,7 +276,17 @@ onUnmounted(() => reader?.destroy());    // libère caméra, worker et mémoire 
 
 ---
 
-## ⚠️ Changements cassants depuis la 0.3
+## ⚠️ Changements cassants
+
+Le détail de chaque version est dans [CHANGELOG.md](CHANGELOG.md) (section « ⚠ BREAKING
+CHANGES »). Les principaux :
+
+- **0.11** : là où le `BarcodeDetector` natif est utilisé, le moteur WASM ne relit plus
+  ce qu'il rate, sauf avec `processing.engineFallback: true`.
+- **0.9** : `points` d'un code 1D = les 4 coins du symbole (au lieu de 2 points sur la
+  ligne de lecture).
+
+Depuis la 0.3 :
 
 - Paquet client : `@gueshbzh-perso/scanner`, qui remplace `@gueshbzh-perso/scanner-wasm` (retiré de npm). L'API bas niveau du moteur reste accessible via `createEngine()` et les fichiers `wasm/` du SDK.
 - `ScanResult.format` est maintenant `"qr_code"`, `"ean_13"`… ; `points` est un tableau de `{ x, y }`.

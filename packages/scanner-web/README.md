@@ -1,8 +1,9 @@
 # @gueshbzh-perso/scanner
 
 Fast QR code & barcode scanning for the web. Rust/WebAssembly decoder, WebGL2
-frame pipeline, parallel decoding in Web Workers, camera management and a ready-made
-overlay. No license key, no network calls: everything runs on the device.
+frame pipeline, parallel decoding in Web Workers, the browser's native
+`BarcodeDetector` where available, camera management and a ready-made overlay. No
+license key, no network calls: everything runs on the device.
 
 ⚠️ Work in progress: the API may still change before 1.0.
 
@@ -139,26 +140,25 @@ overlay (ROI mask, highlights, torch / camera buttons) · beep · vibration
 - If WebGL2 is missing or the context is lost, the pipeline switches to Canvas 2D.
 - If the engine crashes, the worker is restarted transparently.
 - The engine is downloaded and compiled once, then shared by every worker.
-- By default (`processing.nativeDetector: 'auto'`), browsers that ship a native
-  `BarcodeDetector` (Chrome on Android, macOS and ChromeOS) search each video
-  frame with it, straight from the `<video>`: no grab, no worker. With
-  `processing.engineFallback: true`, while it finds nothing, the workers
-  also decode a frame from time to time (~3 per second) with the fallback
-  strategies (laser engraving, shadows, light-on-dark codes…), a safety net
-  that costs a little CPU and battery. Off by default. Its codes get the
-  same multi-frame confirmation and de-duplication. It is used only when it
-  reads the formats it has; the ones it lacks (`micro_qr` always, others
-  depending on the browser) are read only with `engineFallback`. With the
-  default `formats` list they are accepted as unread; with an explicit list,
-  one of them keeps the engine (a requested format is never dropped
-  silently). UPC-A is covered through EAN-13 where the native decoder has no
-  `upc_a` (Safari). It is dropped for the engine alone if it ever fails.
-  Detection is by feature, not by browser: any browser that ships the API
-  gets it, but a JavaScript polyfill of `BarcodeDetector` is ignored (it
-  would only be a slower engine on the main thread). Safari only exposes it
-  behind its experimental "Shape Detection API" flag, where it currently
-  reads nothing: leave the flag off, or set `nativeDetector: 'off'`. Firefox and
-  Chrome on Windows / Linux do not have it today: nothing changes there.
+- **Native `BarcodeDetector`.** By default (`processing.nativeDetector: 'auto'`),
+  browsers that ship one (Chrome on Android, macOS and ChromeOS) search each video
+  frame with it, straight from the `<video>`: no grab, workers idle. It reads codes
+  whatever their orientation, and its codes get the same multi-frame confirmation
+  and de-duplication. Detection is by feature, not by browser; a JavaScript polyfill
+  of `BarcodeDetector` is ignored (it would only be a slower engine on the main thread).
+  - `processing.engineFallback: true` adds a safety net: while the native decoder
+    finds nothing, the workers decode a frame from time to time (~3 per second) with
+    the fallback strategies (laser engraving, shadows, light-on-dark codes). It costs
+    a little CPU and battery, so it is off by default.
+  - Formats the native decoder lacks (`micro_qr` always, others depending on the
+    browser) are read only with `engineFallback`. With the default `formats` list
+    they are accepted as unread; with an explicit list, one of them keeps the engine
+    (a requested format is never dropped silently). UPC-A is read through EAN-13
+    where the native decoder has no `upc_a`.
+  - If it ever fails, the reader switches to the engine alone.
+  - Safari only exposes it behind its experimental "Shape Detection API" flag, where
+    it currently reads nothing: leave the flag off, or set `nativeDetector: 'off'`.
+    Firefox and Chrome on Windows / Linux do not have it: the engine does everything.
 
 ## Browser support
 

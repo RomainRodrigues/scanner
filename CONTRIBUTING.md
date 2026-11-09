@@ -16,8 +16,8 @@ tests/fixtures/          Committed test images
 
 ## Setup
 
-Requirements: Rust (stable), Node.js 22, and for the end-to-end tests ffmpeg
-and Chromium.
+Requirements: Rust (stable), Node.js 20+ (the CI uses 22), and for the
+end-to-end tests ffmpeg and Chromium.
 
 ```bash
 npm install
