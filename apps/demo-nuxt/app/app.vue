@@ -23,7 +23,17 @@ const native = ref(true);
 const nativeAvailable = ref(false);
 /** With the native detector: engine fallbacks from time to time as a safety net. */
 const fallback = ref(false);
-onMounted(() => (nativeAvailable.value = 'BarcodeDetector' in window));
+/** Formats the browser's native decoder announces (diagnostic: they differ between Chrome and Safari). */
+const nativeFormats = ref('');
+onMounted(async () => {
+  const api: unknown = Reflect.get(window, 'BarcodeDetector');
+  nativeAvailable.value = typeof api === 'function';
+  if (!nativeAvailable.value) return;
+  const formats = await (api as { getSupportedFormats(): Promise<string[]> })
+    .getSupportedFormats()
+    .catch(() => []);
+  nativeFormats.value = formats.length ? formats.join(', ') : 'none yet';
+});
 // The scanner is remounted with the new setting: its stats are stale.
 watch([native, fallback], () => (stats.value = null));
 
@@ -33,7 +43,9 @@ const statsLine = computed(() => {
   return (
     `${s.fps.toFixed(0)} fps · decode ${s.decodeMs.toFixed(1)} ms · grab ${s.grabMs.toFixed(1)} ms · ` +
     `${s.frameWidth}×${s.frameHeight} · ${s.backend}${s.worker ? ` · ${s.workers} workers` : ''}` +
-    (s.native ? ` · native ${s.nativeMs.toFixed(1)} ms · engine ${s.engineFps.toFixed(0)}/s` : '')
+    (s.native
+      ? ` · native ${s.nativeMs.toFixed(1)} ms · engine ${s.engineFps.toFixed(0)}/s`
+      : ' · engine only')
   );
 });
 
@@ -109,6 +121,7 @@ async function copy(text: string) {
         </label>
       </div>
       <p v-if="statsLine" class="stats">{{ statsLine }}</p>
+      <p v-if="nativeFormats" class="stats">Native formats: {{ nativeFormats }}</p>
       <p v-if="error" class="error">{{ error }}</p>
     </section>
 

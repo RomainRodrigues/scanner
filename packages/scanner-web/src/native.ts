@@ -58,6 +58,11 @@ export class NativeDetector {
     private detector: BarcodeDetectorInstance,
     /** Formats the detector looks for. */
     readonly formats: readonly BarcodeFormat[],
+    /**
+     * Formats of the default list (every format) that this browser's native
+     * decoder lacks: the reader turns the engine fallback on to read them.
+     */
+    readonly missing: readonly BarcodeFormat[] = [],
   ) {}
 
   /**
@@ -70,6 +75,13 @@ export class NativeDetector {
    * fallbacks read it. Without, a list that names it explicitly keeps the
    * engine (the application asked for it, it must not be lost silently),
    * while the default list (every format) accepts not reading it.
+   *
+   * The default list only needs **some** native support: native decoders do
+   * not all have every format (Safari's, built on Apple's Vision framework,
+   * does not offer the same list as Chrome's on Android; requiring all of
+   * them kept iPhones on the engine alone). The native detector then reads
+   * the formats it has, and `missing` lists the others, for the engine
+   * fallback. An explicit list stays strict: every format must be native.
    */
   static async create(
     formats: readonly BarcodeFormat[] | undefined,
@@ -87,10 +99,13 @@ export class NativeDetector {
     // On Android the list is empty until Google Play Services has downloaded
     // its barcode module (first use on the device, in the background): the
     // detector is unavailable *for now*, the engine does the whole job.
-    const wanted = (formats?.length ? formats : NATIVE_FORMATS).filter((f) => f !== 'micro_qr');
-    if (wanted.length === 0 || !wanted.every((f) => supported.includes(f))) return undefined;
+    const explicit = formats !== undefined && formats.length > 0;
+    const requested = (explicit ? formats : NATIVE_FORMATS).filter((f) => f !== 'micro_qr');
+    const wanted = requested.filter((f) => supported.includes(f));
+    const missing = requested.filter((f) => !supported.includes(f));
+    if (wanted.length === 0 || (explicit && missing.length > 0)) return undefined;
     try {
-      return new NativeDetector(new api({ formats: [...wanted] }), wanted);
+      return new NativeDetector(new api({ formats: [...wanted] }), wanted, missing);
     } catch {
       return undefined;
     }

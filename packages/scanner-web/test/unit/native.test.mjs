@@ -60,8 +60,8 @@ test('getSupportedFormats() failing: unavailable', async () => {
 test('a requested format missing natively: unavailable', async () => {
   const api = fakeApi(['qr_code', 'ean_13']);
   assert.equal(await NativeDetector.create(['qr_code', 'code_39'], api), undefined);
-  // Every format by default: all of them must be supported.
-  assert.equal(await NativeDetector.create(undefined, api), undefined);
+  // An explicit list is strict: every format must be native.
+  assert.equal(await NativeDetector.create(['ean_13', 'code_39'], api), undefined);
 });
 
 test('requested formats are passed to the native detector, micro_qr excepted', async () => {
@@ -131,4 +131,19 @@ test('without the engine fallback, an explicit micro_qr keeps the engine', async
   // The default list (every format) accepts not reading micro_qr.
   assert.equal((await NativeDetector.create(undefined, api))?.formats.length, 13);
   assert.equal((await NativeDetector.create([], api))?.formats.length, 13);
+});
+
+test('default list: the native formats it has, the others listed as missing', async () => {
+  // A native decoder without Codabar and UPC-A (possible on Safari / Vision).
+  const api = fakeApi(ALL.filter((f) => f !== 'codabar' && f !== 'upc_a'));
+  const det = await NativeDetector.create(undefined, api);
+  assert.equal(det?.formats.length, 11);
+  assert.deepEqual([...(det?.missing ?? [])].sort(), ['codabar', 'upc_a']);
+  assert.deepEqual(api.created.at(-1).formats, det?.formats);
+  // Everything native: nothing missing, no engine fallback needed.
+  assert.deepEqual((await NativeDetector.create(undefined, fakeApi(ALL)))?.missing, []);
+  // Explicit list naming a missing format: the engine keeps the job.
+  assert.equal(await NativeDetector.create(['qr_code', 'codabar'], api), undefined);
+  // Explicit list of native formats only: fine.
+  assert.deepEqual((await NativeDetector.create(['qr_code'], api))?.missing, []);
 });
