@@ -222,8 +222,10 @@ codes abîmés, angles) pour un benchmark réaliste.
      dépôt ne puisse s'approprier le sous-domaine.
 - **Dépôt public**, protégé par : une règle sur `main` (PR obligatoire, fusion par
   *merge commit*, ni suppression ni force push), Dependabot (alertes et mises à jour de
-  sécurité), le signalement privé des failles (`SECURITY.md`) et l'environnement `npm`
-  limité à `main`. Guide de contribution : `CONTRIBUTING.md`.
+  sécurité), secret scanning avec push protection (un push contenant un secret est
+  refusé), CodeQL (analyse du code TypeScript, Rust et des workflows à chaque push et
+  PR), le signalement privé des failles (`SECURITY.md`) et l'environnement `npm` limité
+  à `main`. Guide de contribution : `CONTRIBUTING.md`.
 
 Règles de contribution, cas particuliers connus et conventions : [CLAUDE.md](CLAUDE.md).
 
