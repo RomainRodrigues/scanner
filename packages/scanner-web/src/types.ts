@@ -120,25 +120,25 @@ export interface ProcessingOptions {
   backend?: 'auto' | 'webgl' | 'canvas';
   /**
    * Use the browser's native `BarcodeDetector` (Chrome on Android, macOS and
-   * ChromeOS; Safari when its Shape Detection API is enabled) as the fast
-   * pass. With an explicit `formats` list it must support every format
-   * (`micro_qr` excepted); with the default list it reads the formats it
-   * has and the engine fallback is turned on for the others. The engine's fallback strategies keep running on
-   * the frames it finds nothing in: hard codes (laser engraving, shadows…)
-   * are still read. Codes get the same confirmation and de-duplication.
-   * It reads codes whatever their orientation. Elsewhere (Safari, Firefox,
-   * Chrome on Windows / Linux), or if it fails, the engine does everything.
-   * `'off'`: always the engine alone. Default: `'auto'`.
+   * ChromeOS; Safari when its Shape Detection API is enabled): it reads codes
+   * whatever their orientation, and the engine's workers stay idle. Codes get
+   * the same confirmation and de-duplication.
+   *
+   * Formats it lacks (`micro_qr` always, others depending on the browser)
+   * are read only with `engineFallback`. With the default `formats` list
+   * they are accepted as unread; with an explicit list, one of them keeps
+   * the engine instead (a requested format is never dropped silently).
+   * Elsewhere (Safari without the API, Firefox, Chrome on Windows / Linux),
+   * or if it fails, the engine does everything. `'off'`: always the engine
+   * alone. Default: `'auto'`.
    */
   nativeDetector?: 'auto' | 'off';
   /**
    * With the native detector: while it finds nothing, also hand a frame to
    * the engine's fallback strategies from time to time (~3 per second), a
-   * safety net for codes the native decoder may miss (laser engraving,
-   * shadows, light-on-dark codes, `micro_qr`). Costs a little CPU and
-   * battery. Without it, `micro_qr` listed in `formats` keeps the engine
-   * instead of the native detector. Default: `false`, but always on when
-   * the native decoder lacks formats of the default list.
+   * safety net for codes it misses (laser engraving, shadows, light-on-dark
+   * codes) and for the formats it lacks. Costs a little CPU and battery, so
+   * it is never turned on implicitly. Default: `false`.
    */
   engineFallback?: boolean;
 }

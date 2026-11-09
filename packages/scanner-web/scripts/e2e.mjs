@@ -197,19 +197,18 @@ const scenarios = [
     native: true,
     options: {},
   },
-  // …unless the native decoder lacks formats of the default list (Safari):
-  // it is still used, and the engine fallback is turned on for those (here
-  // Code 39, which only the engine can read on this label)…
+  // …an explicit `formats` list naming a format the native decoder lacks
+  // keeps the engine (a requested format is never dropped silently)…
   {
-    name: 'native-partial-auto-fallback',
+    name: 'native-missing-format-engine',
     image: 'real/feed_label_code39.jpg',
     size: 540,
     photo: true,
-    fake: { mode: 'miss', without: ['code_39'] },
+    fake: { mode: 'hit', code: { text: 'NATIVE', format: 'code_39' }, without: ['code_39'] },
     expect: '025925',
-    minNativeCalls: 1,
-    native: true,
-    options: {},
+    maxNativeCalls: 0,
+    native: false,
+    options: { formats: ['code_39'] },
   },
   // …a failing native decoder hands everything back to the engine…
   {

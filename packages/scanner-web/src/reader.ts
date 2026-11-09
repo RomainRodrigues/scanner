@@ -451,7 +451,7 @@ export class BarcodeReader {
     // Replaced by `configure()` meanwhile: results made for the old formats.
     if (generation !== this.nativeGeneration || !this.running || this.paused) return;
 
-    if (codes.length === 0 && this.engineFallback(native) && this.fallbackDue()) {
+    if (codes.length === 0 && this.options.processing?.engineFallback === true && this.fallbackDue()) {
       this.fallbackInFlight = true;
       this.updatePerf({ nativeMs, counted: false });
       try {
@@ -468,15 +468,6 @@ export class BarcodeReader {
     this.updatePerf({ nativeMs });
     // Native points are already in video pixels.
     this.present(outcome, ++this.grabbed, 'native', (d) => d);
-  }
-
-  /**
-   * Engine fallback behind the native detector: when asked for, and also
-   * when the native decoder lacks formats of the default list (Safari on
-   * iPhone), so that codes of those formats are still read.
-   */
-  private engineFallback(native: NativeDetector): boolean {
-    return this.options.processing?.engineFallback === true || native.missing.length > 0;
   }
 
   /** The engine may decode a frame for its fallbacks (native detector active). */
