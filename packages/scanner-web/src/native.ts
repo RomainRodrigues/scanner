@@ -32,9 +32,9 @@ export interface BarcodeDetectorClass {
 
 /**
  * Formats of this SDK, all spelled like the native ones (`qr_code`, `ean_13`…)
- * except `micro_qr`, which the native API does not have: when it is asked
- * for, it is still read by the engine's fallback strategies (`Hard` decodes
- * the raw frame with every format), only less often than by a fast path.
+ * except `micro_qr`, which the native API does not have. With the engine
+ * fallback it is still read by the fallback strategies (`Hard` decodes the
+ * raw frame with every format); without it, see `NativeDetector.create`.
  */
 const NATIVE_FORMATS: readonly BarcodeFormat[] = [
   'qr_code',
@@ -64,13 +64,20 @@ export class NativeDetector {
    * A detector for `formats` (default: all), or `undefined` when the native
    * decoder cannot replace the engine's fast path: API absent, or one of the
    * requested formats not supported natively (codes of that format would
-   * then only be read by the slower fallbacks).
+   * then be read by the slow fallbacks at best).
+   *
+   * `micro_qr`, absent from the native API: with `engineFallback` the
+   * fallbacks read it. Without, a list that names it explicitly keeps the
+   * engine (the application asked for it, it must not be lost silently),
+   * while the default list (every format) accepts not reading it.
    */
   static async create(
     formats: readonly BarcodeFormat[] | undefined,
     api: BarcodeDetectorClass | undefined = nativeApi(),
+    engineFallback = false,
   ): Promise<NativeDetector | undefined> {
     if (!api) return undefined;
+    if (!engineFallback && formats?.includes('micro_qr')) return undefined;
     let supported: string[];
     try {
       supported = await api.getSupportedFormats();

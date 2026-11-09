@@ -184,7 +184,21 @@ const scenarios = [
     // detection are compared.)
     maxEngineShare: 1 / 3,
     native: true,
-    options: { processing: { nativeDetector: 'auto' } },
+    options: { processing: { engineFallback: true } },
+  },
+  // …without `engineFallback` (the default) the engine stays idle: nothing
+  // reads the label…
+  {
+    name: 'native-miss-no-fallback',
+    image: 'real/feed_label_code39.jpg',
+    size: 540,
+    photo: true,
+    fake: { mode: 'miss' },
+    expect: null,
+    timeoutMs: 3000,
+    maxEngineFrames: 0,
+    native: true,
+    options: {},
   },
   // …a failing native decoder hands everything back to the engine…
   {
@@ -237,48 +251,54 @@ for (const s of scenarios) {
     page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
     if (s.fake) await page.addInitScript(installFakeDetector, s.fake);
     await page.goto(`${base}/test/e2e.html`);
-    const out = await page.evaluate(async (options) => {
-      const { BarcodeReader } = await import('/dist/index.js');
-      const host = document.createElement('div');
-      host.style.cssText = 'width:640px;height:360px';
-      document.body.prepend(host);
-      const reader = await BarcodeReader.create({ host, feedback: false, ...options });
-      const t0 = performance.now();
-      let nativeCallsAtDetection = null;
-      let engineFramesAtDetection = null;
-      const detected = new Promise((ok) =>
-        reader.on('detected', (codes) => {
-          nativeCallsAtDetection ??= window.__nativeCalls ?? null;
-          engineFramesAtDetection ??= window.__engineFrames ?? null;
-          ok(codes);
-        }),
-      );
-      await reader.start();
-      const codes = await Promise.race([detected, new Promise((r) => setTimeout(() => r(null), 8000))]);
-      const elapsed = performance.now() - t0;
-      // Throughput: the reader keeps scanning (duplicates are filtered), and
-      // `stats.fps` is refreshed every second.
-      await new Promise((r) => setTimeout(r, 2200));
-      const result = {
-        codes,
-        elapsed,
-        stats: reader.stats,
-        video: [reader.video.videoWidth, reader.video.videoHeight],
-        nativeCallsAtDetection,
-        nativeCalls: window.__nativeCalls ?? null,
-        engineFrames: window.__engineFrames ?? null,
-        engineFramesAtDetection,
-      };
-      await reader.destroy();
-      return result;
-    }, s.options);
+    const out = await page.evaluate(
+      async ({ options, timeoutMs }) => {
+        const { BarcodeReader } = await import('/dist/index.js');
+        const host = document.createElement('div');
+        host.style.cssText = 'width:640px;height:360px';
+        document.body.prepend(host);
+        const reader = await BarcodeReader.create({ host, feedback: false, ...options });
+        const t0 = performance.now();
+        let nativeCallsAtDetection = null;
+        let engineFramesAtDetection = null;
+        const detected = new Promise((ok) =>
+          reader.on('detected', (codes) => {
+            nativeCallsAtDetection ??= window.__nativeCalls ?? null;
+            engineFramesAtDetection ??= window.__engineFrames ?? null;
+            ok(codes);
+          }),
+        );
+        await reader.start();
+        const codes = await Promise.race([
+          detected,
+          new Promise((r) => setTimeout(() => r(null), timeoutMs)),
+        ]);
+        const elapsed = performance.now() - t0;
+        // Throughput: the reader keeps scanning (duplicates are filtered), and
+        // `stats.fps` is refreshed every second.
+        await new Promise((r) => setTimeout(r, 2200));
+        const result = {
+          codes,
+          elapsed,
+          stats: reader.stats,
+          video: [reader.video.videoWidth, reader.video.videoHeight],
+          nativeCallsAtDetection,
+          nativeCalls: window.__nativeCalls ?? null,
+          engineFrames: window.__engineFrames ?? null,
+          engineFramesAtDetection,
+        };
+        await reader.destroy();
+        return result;
+      },
+      { options: s.options, timeoutMs: s.timeoutMs ?? 8000 },
+    );
 
     const code = out.codes?.[0];
-    const ok = code?.text === s.expect;
+    // `expect: null`: nothing must be read.
+    const ok = s.expect === null ? !code : code?.text === s.expect;
     // Points must be in video space, around the center of the 1280×720 frame.
-    const centered = code?.points.every(
-      (p) => p.x > 640 - s.size && p.x < 640 + s.size && p.y > 0 && p.y < 720,
-    );
+    const centered =
+      !code || code.points.every((p) => p.x > 640 - s.size && p.x < 640 + s.size && p.y > 0 && p.y < 720);
     const st = out.stats;
     // Native scenarios: how often the fake detector was called, and whether
     // the reader still uses it at the end.
@@ -301,7 +321,9 @@ for (const s of scenarios) {
       `first read ${out.elapsed.toFixed(0)} ms, ${st.fps.toFixed(1)} fps, decode ${st.decodeMs.toFixed(1)} ms, ` +
       `grab ${st.grabMs.toFixed(1)} ms`;
     if (ok && centered && nativeOk) {
-      console.log(`✓ ${s.name}: "${code.text}" (${code.format}) — ${info}`);
+      console.log(
+        `✓ ${s.name}: ${code ? `"${code.text}" (${code.format})` : 'nothing read, as expected'} — ${info}`,
+      );
     } else {
       failures++;
       console.log(`✗ ${s.name}: expected "${s.expect}", got ${JSON.stringify(code)} — ${info}`);

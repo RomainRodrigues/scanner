@@ -66,11 +66,12 @@ test('a requested format missing natively: unavailable', async () => {
 
 test('requested formats are passed to the native detector, micro_qr excepted', async () => {
   const api = fakeApi(ALL);
-  const det = await NativeDetector.create(['qr_code', 'micro_qr', 'ean_13'], api);
+  // With the engine fallback, which reads micro_qr.
+  const det = await NativeDetector.create(['qr_code', 'micro_qr', 'ean_13'], api, true);
   assert.deepEqual(det?.formats, ['qr_code', 'ean_13']);
   assert.deepEqual(api.created, [{ formats: ['qr_code', 'ean_13'] }]);
   // micro_qr alone: nothing for the native detector to do.
-  assert.equal(await NativeDetector.create(['micro_qr'], api), undefined);
+  assert.equal(await NativeDetector.create(['micro_qr'], api, true), undefined);
   // Default: every format it has.
   assert.equal((await NativeDetector.create(undefined, api))?.formats.length, 13);
 });
@@ -120,4 +121,14 @@ test('only a built-in BarcodeDetector counts, not a JavaScript polyfill', async 
   } finally {
     delete globalThis.BarcodeDetector;
   }
+});
+
+test('without the engine fallback, an explicit micro_qr keeps the engine', async () => {
+  const api = fakeApi(ALL);
+  // Nothing would read micro_qr: the native detector is not used.
+  assert.equal(await NativeDetector.create(['qr_code', 'micro_qr'], api), undefined);
+  assert.equal(await NativeDetector.create(['qr_code', 'micro_qr'], api, false), undefined);
+  // The default list (every format) accepts not reading micro_qr.
+  assert.equal((await NativeDetector.create(undefined, api))?.formats.length, 13);
+  assert.equal((await NativeDetector.create([], api))?.formats.length, 13);
 });
