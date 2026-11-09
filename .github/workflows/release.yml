@@ -48,6 +48,9 @@ jobs:
       contents: write
     outputs:
       branch: ${{ fromJSON(needs.release-please.outputs.pr).headBranchName }}
+      # The exact commit tested below and reported on the release PR: the
+      # branch may move (next push on main) while the CI runs.
+      sha: ${{ steps.head.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,17 +70,43 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "chore: sync lockfiles with the release version" -- Cargo.lock package-lock.json
           git push
+      - id: head
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   # Commits pushed with GITHUB_TOKEN do not trigger workflows, so the release PR
   # gets no CI of its own: run the CI here, on the release branch, after the
-  # lockfiles were synced. Check this run before merging the release PR.
+  # lockfiles were synced.
   release-pr-ci:
     needs: sync-lockfiles
     permissions:
       contents: read
     uses: ./.github/workflows/ci.yml
     with:
-      ref: ${{ needs.sync-lockfiles.outputs.branch }}
+      ref: ${{ needs.sync-lockfiles.outputs.sha }}
+
+  # The run above is attached to the main commit that triggered this workflow,
+  # not to the release PR, whose checks would stay "expected" forever and block
+  # it once the CI is a required check of the `main` ruleset. Report its result
+  # on the tested commit of the release PR, under the names of the CI jobs.
+  release-pr-status:
+    needs: [sync-lockfiles, release-pr-ci]
+    if: always() && needs.sync-lockfiles.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+    steps:
+      - name: Report the CI result on the release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.sync-lockfiles.outputs.sha }}
+          STATE: ${{ needs.release-pr-ci.result == 'success' && 'success' || 'failure' }}
+        run: |
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          # Same names as the jobs in ci.yml: keep them in sync.
+          for context in "Rust — fmt, clippy, tests" "SDK & demo — lint, build, e2e"; do
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$STATE" \
+              -f context="$context" -f target_url="$url" -f description="release-pr-ci: $STATE"
+          done
 
   # Unprivileged: installs the npm dependencies and runs the build.
   package:

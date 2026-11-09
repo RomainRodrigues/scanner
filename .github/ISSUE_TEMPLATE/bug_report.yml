@@ -1,0 +1,42 @@
+name: Bug report
+description: A code that does not scan, a crash, or a wrong result.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A **photo of the code** (as the camera sees it) is the most useful thing you can attach:
+        real images that fail become test fixtures. Security problems: please use
+        [private reporting](https://github.com/RomainRodrigues/scanner/security/advisories/new) instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: SDK version
+      placeholder: '0.11.1'
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and browser
+      placeholder: Galaxy A14, Chrome 142 / iPhone 14 Pro, Safari 19
+    validations:
+      required: true
+  - type: textarea
+    id: stats
+    attributes:
+      label: Reader options and stats
+      description: The options passed to `BarcodeReader.create` and the `reader.stats` values (the demo shows them under the camera).
+      render: text
+  - type: textarea
+    id: image
+    attributes:
+      label: Photo of the code
+      description: Drag and drop the image here, and give the expected value if you know it.
