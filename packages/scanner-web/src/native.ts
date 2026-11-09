@@ -1,7 +1,10 @@
 // The browser's native barcode decoder (`BarcodeDetector`, Shape Detection API).
 //
 // Available in Chrome on Android (Google Play Services), macOS (Apple Vision)
-// and ChromeOS; not in Safari, Firefox, nor Chrome on Windows / Linux. Where it
+// and ChromeOS; not in Firefox nor Chrome on Windows / Linux. Safari only has
+// it behind its experimental "Shape Detection API" flag, and there it finds
+// nothing (iPhone, tested on the demo: active, no code ever read); left as
+// is, the flag is off by default. Where it
 // exists it decodes outside the page's threads, so it can replace the engine's
 // **fast path**: the engine then only runs its fallback strategies (Linear,
 // CLAHE, Sauvola, inverted…) on the frames the native decoder found nothing
