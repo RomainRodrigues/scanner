@@ -31,13 +31,13 @@ export interface BarcodeDetectorClass {
 }
 
 /**
- * Formats of this SDK, all spelled like the native ones (`qr_code`, `ean_13`…)
- * except `micro_qr`, which the native API does not have. With the engine
- * fallback it is still read by the fallback strategies (`Hard` decodes the
- * raw frame with every format); without it, see `NativeDetector.create`.
+ * Every format of this SDK. The native API spells them the same way
+ * (`qr_code`, `ean_13`…) but has no `micro_qr`, and a given browser may lack
+ * others (Safari, built on Apple's Vision framework, has no `upc_a`).
  */
-const NATIVE_FORMATS: readonly BarcodeFormat[] = [
+const ALL_FORMATS: readonly BarcodeFormat[] = [
   'qr_code',
+  'micro_qr',
   'data_matrix',
   'aztec',
   'pdf417',
@@ -56,32 +56,32 @@ const NATIVE_FORMATS: readonly BarcodeFormat[] = [
 export class NativeDetector {
   private constructor(
     private detector: BarcodeDetectorInstance,
-    /** Formats the detector looks for. */
+    /** Requested formats the detector reads. */
     readonly formats: readonly BarcodeFormat[],
     /**
-     * Formats of the default list (every format) that this browser's native
-     * decoder lacks: the reader turns the engine fallback on to read them.
+     * Requested formats the native decoder cannot read. They are read only
+     * with `processing.engineFallback`.
      */
-    readonly missing: readonly BarcodeFormat[] = [],
+    readonly missing: readonly BarcodeFormat[],
+    /** UPC-A codes come back as EAN-13 and are converted (see `create`). */
+    private upcFromEan: boolean,
   ) {}
 
   /**
-   * A detector for `formats` (default: all), or `undefined` when the native
-   * decoder cannot replace the engine's fast path: API absent, or one of the
-   * requested formats not supported natively (codes of that format would
-   * then be read by the slow fallbacks at best).
+   * A detector for `formats` (default: all), or `undefined` when the engine
+   * must keep the job: API absent, no requested format readable natively, or
+   * an **explicit** list naming a format the native decoder lacks while
+   * `engineFallback` is off (a format the application asked for must not be
+   * dropped silently). With the default list, missing formats (always
+   * `micro_qr`, sometimes others) are accepted: the native decoder reads the
+   * rest, and the missing ones are read only with `engineFallback`. The
+   * engine fallback never turns itself on: it costs CPU and battery, that is
+   * the application's call.
    *
-   * `micro_qr`, absent from the native API: with `engineFallback` the
-   * fallbacks read it. Without, a list that names it explicitly keeps the
-   * engine (the application asked for it, it must not be lost silently),
-   * while the default list (every format) accepts not reading it.
-   *
-   * The default list only needs **some** native support: native decoders do
-   * not all have every format (Safari's, built on Apple's Vision framework,
-   * does not offer the same list as Chrome's on Android; requiring all of
-   * them kept iPhones on the engine alone). The native detector then reads
-   * the formats it has, and `missing` lists the others, for the engine
-   * fallback. An explicit list stays strict: every format must be native.
+   * UPC-A is EAN-13 with a leading `0` (GTIN-12 inside GTIN-13), so a native
+   * decoder without `upc_a` but with `ean_13` covers it: it is asked for
+   * EAN-13 and those codes are reported as UPC-A, as this SDK's engine (and
+   * ZXing) do when UPC-A is requested.
    */
   static async create(
     formats: readonly BarcodeFormat[] | undefined,
@@ -89,23 +89,26 @@ export class NativeDetector {
     engineFallback = false,
   ): Promise<NativeDetector | undefined> {
     if (!api) return undefined;
-    if (!engineFallback && formats?.includes('micro_qr')) return undefined;
     let supported: string[];
     try {
       supported = await api.getSupportedFormats();
     } catch {
       return undefined;
     }
+    const explicit = formats !== undefined && formats.length > 0;
+    const requested = explicit ? formats : ALL_FORMATS;
+    const upcFromEan =
+      requested.includes('upc_a') && !supported.includes('upc_a') && supported.includes('ean_13');
+    const covered = (f: BarcodeFormat) => supported.includes(f) || (f === 'upc_a' && upcFromEan);
+    const readable = requested.filter(covered);
+    const missing = requested.filter((f) => !covered(f));
     // On Android the list is empty until Google Play Services has downloaded
     // its barcode module (first use on the device, in the background): the
     // detector is unavailable *for now*, the engine does the whole job.
-    const explicit = formats !== undefined && formats.length > 0;
-    const requested = (explicit ? formats : NATIVE_FORMATS).filter((f) => f !== 'micro_qr');
-    const wanted = requested.filter((f) => supported.includes(f));
-    const missing = requested.filter((f) => !supported.includes(f));
-    if (wanted.length === 0 || (explicit && missing.length > 0)) return undefined;
+    if (readable.length === 0 || (explicit && missing.length > 0 && !engineFallback)) return undefined;
+    const native = readable.map((f) => (f === 'upc_a' && upcFromEan ? 'ean_13' : f));
     try {
-      return new NativeDetector(new api({ formats: [...wanted] }), wanted, missing);
+      return new NativeDetector(new api({ formats: [...new Set(native)] }), readable, missing, upcFromEan);
     } catch {
       return undefined;
     }
@@ -120,11 +123,16 @@ export class NativeDetector {
     const found = await this.detector.detect(source);
     const timestamp = Date.now();
     return found.flatMap((code) => {
-      const format = code.format as BarcodeFormat;
+      let format = code.format as BarcodeFormat;
+      let text = code.rawValue;
+      if (this.upcFromEan && format === 'ean_13' && /^0\d{12}$/.test(text)) {
+        format = 'upc_a';
+        text = text.slice(1);
+      }
       if (!this.formats.includes(format) || code.cornerPoints.length === 0) return [];
       if (!contains(rect, center(code.cornerPoints))) return [];
       const points = code.cornerPoints.map((p) => ({ x: p.x, y: p.y }));
-      return [{ text: code.rawValue, format, points, timestamp }];
+      return [{ text, format, points, timestamp }];
     });
   }
 }

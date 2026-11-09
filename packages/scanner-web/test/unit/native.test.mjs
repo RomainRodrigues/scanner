@@ -64,11 +64,12 @@ test('a requested format missing natively: unavailable', async () => {
   assert.equal(await NativeDetector.create(['ean_13', 'code_39'], api), undefined);
 });
 
-test('requested formats are passed to the native detector, micro_qr excepted', async () => {
+test('requested formats are passed to the native detector, micro_qr is missing', async () => {
   const api = fakeApi(ALL);
   // With the engine fallback, which reads micro_qr.
   const det = await NativeDetector.create(['qr_code', 'micro_qr', 'ean_13'], api, true);
   assert.deepEqual(det?.formats, ['qr_code', 'ean_13']);
+  assert.deepEqual(det?.missing, ['micro_qr']);
   assert.deepEqual(api.created, [{ formats: ['qr_code', 'ean_13'] }]);
   // micro_qr alone: nothing for the native detector to do.
   assert.equal(await NativeDetector.create(['micro_qr'], api, true), undefined);
@@ -133,17 +134,65 @@ test('without the engine fallback, an explicit micro_qr keeps the engine', async
   assert.equal((await NativeDetector.create([], api))?.formats.length, 13);
 });
 
-test('default list: the native formats it has, the others listed as missing', async () => {
-  // A native decoder without Codabar and UPC-A (possible on Safari / Vision).
-  const api = fakeApi(ALL.filter((f) => f !== 'codabar' && f !== 'upc_a'));
+test('default list: the native formats it has, the missing ones are not read', async () => {
+  // A native decoder without Codabar.
+  const api = fakeApi(ALL.filter((f) => f !== 'codabar'));
   const det = await NativeDetector.create(undefined, api);
-  assert.equal(det?.formats.length, 11);
-  assert.deepEqual([...(det?.missing ?? [])].sort(), ['codabar', 'upc_a']);
-  assert.deepEqual(api.created.at(-1).formats, det?.formats);
-  // Everything native: nothing missing, no engine fallback needed.
-  assert.deepEqual((await NativeDetector.create(undefined, fakeApi(ALL)))?.missing, []);
-  // Explicit list naming a missing format: the engine keeps the job.
+  assert.equal(det?.formats.length, 12);
+  assert.deepEqual(det?.missing, ['micro_qr', 'codabar']);
+  // Everything native: only micro_qr, which no native API has, is missing.
+  assert.deepEqual((await NativeDetector.create(undefined, fakeApi(ALL)))?.missing, ['micro_qr']);
+});
+
+test('explicit list naming a missing format: engine, unless the fallback reads it', async () => {
+  const api = fakeApi(ALL.filter((f) => f !== 'codabar'));
   assert.equal(await NativeDetector.create(['qr_code', 'codabar'], api), undefined);
-  // Explicit list of native formats only: fine.
+  const det = await NativeDetector.create(['qr_code', 'codabar'], api, true);
+  assert.deepEqual(det?.formats, ['qr_code']);
+  assert.deepEqual(det?.missing, ['codabar']);
+  // Explicit list of native formats only: fine, nothing missing.
   assert.deepEqual((await NativeDetector.create(['qr_code'], api))?.missing, []);
+});
+
+test('UPC-A read through EAN-13 when the native decoder has no upc_a (Safari)', async () => {
+  const codes = [
+    { rawValue: '0012345678905', format: 'ean_13', cornerPoints: square(10, 10, 20) },
+    { rawValue: '4006381333931', format: 'ean_13', cornerPoints: square(10, 10, 20) },
+  ];
+  const rect = { x: 0, y: 0, width: 100, height: 100 };
+  const api = fakeApi(
+    ALL.filter((f) => f !== 'upc_a'),
+    codes,
+  );
+
+  // UPC-A only: the native decoder is asked for EAN-13, only UPC-A comes out.
+  const upc = await NativeDetector.create(['upc_a'], api);
+  assert.deepEqual(api.created.at(-1).formats, ['ean_13']);
+  assert.deepEqual(upc?.missing, []);
+  assert.deepEqual(
+    (await upc.detect({}, rect)).map((d) => [d.format, d.text]),
+    [['upc_a', '012345678905']],
+  );
+
+  // Both: a leading 0 makes it UPC-A, like the engine reports it.
+  const both = await NativeDetector.create(['ean_13', 'upc_a'], api);
+  assert.deepEqual(api.created.at(-1).formats, ['ean_13']);
+  assert.deepEqual(
+    (await both.detect({}, rect)).map((d) => [d.format, d.text]),
+    [
+      ['upc_a', '012345678905'],
+      ['ean_13', '4006381333931'],
+    ],
+  );
+
+  // EAN-13 only: nothing converted.
+  const ean = await NativeDetector.create(['ean_13'], api);
+  assert.deepEqual(
+    (await ean.detect({}, rect)).map((d) => d.text),
+    ['0012345678905', '4006381333931'],
+  );
+
+  // Neither upc_a nor ean_13 natively: UPC-A is missing.
+  const none = fakeApi(ALL.filter((f) => f !== 'upc_a' && f !== 'ean_13'));
+  assert.equal(await NativeDetector.create(['upc_a'], none), undefined);
 });
