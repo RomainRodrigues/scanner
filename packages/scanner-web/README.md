@@ -51,7 +51,7 @@ await reader.destroy();  // removes the preview, frees the engine
 | `camera` | `{ facingMode: 'environment', resolution: 'hd' }` | Also `deviceId`, `rememberDevice` (default `true`), `releaseWhenHidden` (default `true`: the camera is released while the page is hidden and reopened when it is visible again). |
 | `overlay` | all on | `showRegion`, `showDetections`, `showTorchButton`, `showCameraSwitch`, `color`, or `false`. |
 | `feedback` | beep + vibrate | `{ beep, vibrate }` or `false`. |
-| `processing` | `{ maxDimension: 1024, backend: 'auto', nativeDetector: 'off' }` | Decoder image size; `'webgl'`, `'canvas'` or `'auto'`; `nativeDetector: 'auto'` uses the browser's `BarcodeDetector` as the fast pass where it exists (see [How it works](#how-it-works)). |
+| `processing` | `{ maxDimension: 1024, backend: 'auto', nativeDetector: 'auto' }` | Decoder image size; `'webgl'`, `'canvas'` or `'auto'`; `nativeDetector: 'auto'` uses the browser's `BarcodeDetector` as the fast pass where it exists, `'off'` always uses the engine alone (see [How it works](#how-it-works)). |
 | `worker` | `true` | Decode in Web Workers; falls back to the main thread if unavailable. |
 | `workers` | cores − 1 (1–3) | Number of decoding workers: frames are decoded in parallel. |
 | `wasmUrl`, `workerUrl` | auto | Override asset URLs (CDN, custom bundler setup). |
@@ -139,7 +139,7 @@ overlay (ROI mask, highlights, torch / camera buttons) · beep · vibration
 - If WebGL2 is missing or the context is lost, the pipeline switches to Canvas 2D.
 - If the engine crashes, the worker is restarted transparently.
 - The engine is downloaded and compiled once, then shared by every worker.
-- With `processing.nativeDetector: 'auto'`, browsers that ship a native
+- By default (`processing.nativeDetector: 'auto'`), browsers that ship a native
   `BarcodeDetector` (Chrome on Android, macOS and ChromeOS) search each video
   frame with it, straight from the `<video>`: no grab, no worker. While it
   finds nothing, the workers still decode a frame from time to time (~3 per

@@ -19,7 +19,7 @@ const error = ref('');
 const stats = ref<ReaderStats | null>(null);
 const busy = ref(false);
 /** Native BarcodeDetector as the fast pass (Chrome on Android, macOS, ChromeOS). */
-const native = ref(false);
+const native = ref(true);
 const nativeAvailable = ref(false);
 onMounted(() => (nativeAvailable.value = 'BarcodeDetector' in window));
 // The scanner is remounted with the new setting: its stats are stale.

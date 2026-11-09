@@ -124,7 +124,9 @@ export interface ProcessingOptions {
    * (`micro_qr` excepted). The engine's fallback strategies keep running on
    * the frames it finds nothing in: hard codes (laser engraving, shadows…)
    * are still read. Codes get the same confirmation and de-duplication.
-   * Elsewhere, or if it fails, the engine does everything. Default: `'off'`.
+   * It reads codes whatever their orientation. Elsewhere (Safari, Firefox,
+   * Chrome on Windows / Linux), or if it fails, the engine does everything.
+   * `'off'`: always the engine alone. Default: `'auto'`.
    */
   nativeDetector?: 'auto' | 'off';
 }
