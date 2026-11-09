@@ -103,8 +103,10 @@ Débit du moteur (benchmark e2e, frames texturées, 4 cœurs) : ~10 fps avec 1 w
 
 **Avant la 1.0.0** (la 1.0 engage l'API : plus de changement cassant sans 2.0) :
 
-- [ ] Tester la démo sur de vrais téléphones (au moins un iPhone et le Galaxy A14) :
-  fps, lecture de la boucle, caméra libérée en arrière-plan, choix WebGL / Canvas.
+- [x] Tester la démo sur de vrais téléphones : Galaxy A14 (Chrome : fps, boucle lue,
+  `BarcodeDetector` natif sans faux positif) et iPhone 14 Pro (Safari : moteur WASM ; le
+  natif expérimental de Safari ne lit rien, voir CLAUDE.md).
+- [ ] Vérifier sur téléphone la caméra libérée en arrière-plan et le choix WebGL / Canvas.
 - [ ] Migrer les bindings WASM vers tsify 0.5 (`tsify::Ts`, voir CLAUDE.md), puis relire
   toute l'API publique (exports, noms d'options) pour la figer.
 - [ ] Ajouter une dizaine de vraies photos dans `tests/fixtures/real/` (EAN en magasin,
@@ -112,14 +114,21 @@ Débit du moteur (benchmark e2e, frames texturées, 4 cœurs) : ~10 fps avec 1 w
 - [ ] Publier la 1.0.0 : commit avec le pied `Release-As: 1.0.0`, release-please fait le reste.
 
 **Après la 1.0** — taille du moteur. Mesuré en 0.8 : `.wasm` 1,12 Mo brut,
-**486 Ko gzip**, **383 Ko brotli** (+ ~25 Ko gzip de JS). Il n'est téléchargé qu'à la
-création du scanner, une seule fois (cache), et compilé une seule fois pour tous les
+**486 Ko gzip**, **383 Ko brotli**. Le JavaScript du SDK, lui, est léger : 15,3 Ko gzip
+(Bundlephobia, 0.11.1 ; sans dépendance, *tree-shakeable*). Le `.wasm` est téléchargé à
+la création du scanner, une seule fois (cache), et compilé une seule fois pour tous les
 workers. Le poids vient surtout de rxing (lecteurs des 14 formats). Pistes, à mesurer :
 
-1. Builds par famille de formats (QR seul, 1D seuls…) via les features Cargo de rxing,
+1. **Ne charger le moteur que s'il sert** : avec le `BarcodeDetector` natif (Chrome
+   Android, par défaut depuis la 0.11), les workers ne décodent rien, mais le `.wasm`
+   est quand même téléchargé et compilé au démarrage. Le charger seulement en cas de
+   besoin (pas de natif, échec du natif, `engineFallback`, format manquant d'une liste
+   explicite, `scanImage`) éviterait ~490 Ko et la compilation sur Android : démarrage
+   plus rapide. Meilleur rapport gain / effort.
+2. Builds par famille de formats (QR seul, 1D seuls…) via les features Cargo de rxing,
    choisis automatiquement selon l'option `formats`.
-2. Analyse du binaire (`twiggy`) pour retirer le code embarqué inutile.
-3. Documenter le service du `.wasm` en brotli (~100 Ko de moins qu'en gzip).
+3. Analyse du binaire (`twiggy`) pour retirer le code embarqué inutile.
+4. Documenter le service du `.wasm` en brotli (~100 Ko de moins qu'en gzip).
 
 ---
 
