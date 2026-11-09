@@ -9,7 +9,7 @@ on:
   workflow_call:
     inputs:
       ref:
-        description: Branch to test.
+        description: Commit (or branch) to test.
         type: string
         required: true
 
@@ -23,6 +23,9 @@ permissions:
   contents: read
 
 jobs:
+  # The job names are also reported on release PRs by release.yml
+  # (`release-pr-status`) and required by the `main` ruleset: rename them
+  # in all three places.
   rust:
     name: Rust — fmt, clippy, tests
     runs-on: ubuntu-latest

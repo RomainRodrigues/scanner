@@ -84,8 +84,9 @@ Une **seule version** pour tout le projet, jamais modifiée à la main :
    `CHANGELOG.md`, puis les deux lockfiles.
 2. Fusionner cette PR → tag `vX.Y.Z`, release GitHub et **publication npm** du SDK
    (avec provenance si le dépôt est public : npm la refuse pour un dépôt privé).
-   Avant de fusionner, vérifier le job `release-pr-ci` du workflow *Release* : c'est la
-   seule CI de la PR de release (voir le tableau ci-dessous).
+   Sa CI est le job `release-pr-ci` du workflow *Release*, dont le résultat est reporté
+   sur la PR (statuts aux noms des jobs de la CI, voir le tableau ci-dessous) : comme
+   toute PR, elle ne se fusionne qu'avec la CI au vert.
 
 **Fusion d'une PR : toujours un *merge commit* dont le message n'est pas un commit
 conventionnel** (ex. titre `Merge pull request #N …`, corps `PR #N`). GitHub met par
@@ -153,7 +154,7 @@ version courante (utilisé pour la première publication).
 | tsify reste en 0.4 : la 0.5 déprécie `into_wasm_abi` / `from_wasm_abi` (fuite de la valeur JS quand la désérialisation échoue et lève une exception) au profit de `tsify::Ts`, soit une migration des bindings WASM. Le chemin normal, utilisé à chaque frame, ne fuit pas (mesuré : mémoire stable sur 22 000 frames). Dependabot ignore ses versions majeures en attendant | `crates/scanner-wasm`, `.github/dependabot.yml` |
 | TypeScript épinglé en `~6.0` : `typescript-eslint` (peer `<6.1.0`), `vue-tsc` et `vite-plugin-checker` ne supportent pas TypeScript 7 (`npm ci` échoue en ERESOLVE). Dependabot ignore ses versions majeures, et celles de `@types/node` (on cible Node 22) | `package.json`, `.github/dependabot.yml` |
 | Actions GitHub épinglées par **SHA de commit** (le tag en commentaire) et mises à jour par Dependabot (préfixes `ci` / `build` : pas de release déclenchée) ; `npm` épinglé dans le job de publication | `.github/workflows/*.yml`, `.github/dependabot.yml` |
-| Les commits poussés avec `GITHUB_TOKEN` (PR de release) ne déclenchent aucun workflow → la CI est appelée par le workflow *Release* (`release-pr-ci`, `workflow_call`) sur la branche de release ; groupe de concurrence basé sur `inputs.ref` pour ne pas annuler la CI de `main` | `.github/workflows/release.yml`, `.github/workflows/ci.yml` |
+| Les commits poussés avec `GITHUB_TOKEN` (PR de release) ne déclenchent aucun workflow → la CI est appelée par le workflow *Release* (`release-pr-ci`, `workflow_call`) sur le **commit exact** poussé par `sync-lockfiles` (la branche peut bouger pendant la CI) ; groupe de concurrence basé sur `inputs.ref` pour ne pas annuler la CI de `main`. Ce run est rattaché au commit de `main`, pas à la PR : `release-pr-status` reporte son résultat sur le commit testé de la PR, en **statuts aux noms des jobs de la CI**, sinon la PR de release attendrait pour toujours les checks exigés par la règle de `main`. Renommer un job de la CI = le renommer aussi dans `release-pr-status` et dans la règle | `.github/workflows/release.yml`, `.github/workflows/ci.yml` |
 | Publication npm par OIDC (trusted publishing) : npm ≥ 11.5.1 requis, Node 22 n'embarque que npm 10 | `.github/workflows/release.yml` |
 | release-please réécrit `.release-please-manifest.json` en JSON compact à chaque release → exclu de Prettier (sinon `npm run lint` casse sur `main` après chaque release) | `.prettierignore` |
 | npm refuse la provenance pour un dépôt **privé** (E422 « Unsupported … repository visibility ») → `--no-provenance` tant que le dépôt est privé, `--provenance` sinon ; le trusted publishing fonctionne dans les deux cas | `.github/workflows/release.yml` |
