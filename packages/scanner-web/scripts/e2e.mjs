@@ -165,7 +165,8 @@ const scenarios = [
     // nor sent to the engine.
     maxEngineFrames: 0,
     native: true,
-    options: { formats: ['ean_13', 'qr_code'], processing: { nativeDetector: 'auto' } },
+    // Default options: the native detector is on by default.
+    options: { formats: ['ean_13', 'qr_code'] },
   },
   // …the engine's fallbacks still read what the native decoder misses (this
   // label is only read by the Linear strategy)…
@@ -197,16 +198,16 @@ const scenarios = [
     native: false,
     options: { processing: { nativeDetector: 'auto' } },
   },
-  // …and it is never called unless enabled.
+  // …and `'off'` never calls it.
   {
-    name: 'native-off-by-default',
+    name: 'native-off',
     image: 'qr/clean_hd.png',
     size: 330,
     fake: { mode: 'hit', code: { text: 'NATIVE', format: 'qr_code' } },
     expect: 'https://github.com/romrd/scanner',
     maxNativeCalls: 0,
     native: false,
-    options: {},
+    options: { processing: { nativeDetector: 'off' } },
   },
 ];
 

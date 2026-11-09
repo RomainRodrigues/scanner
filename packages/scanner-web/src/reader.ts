@@ -677,12 +677,15 @@ class GrabError extends Error {
   }
 }
 
-/** The native detector when `processing.nativeDetector` is `'auto'` and it can serve `engineOptions`. */
+/** The native detector unless `processing.nativeDetector` is `'off'`, when it can serve `engineOptions`. */
 function createNative(
   options: ReaderOptions,
   engineOptions: EngineOptions,
 ): Promise<NativeDetector | undefined> {
-  if (options.processing?.nativeDetector !== 'auto') return Promise.resolve(undefined);
+  // On by default: on a Galaxy A14 (Chrome, Play Services) it read codes very
+  // well whatever the orientation of the phone, where the engine's fast pass
+  // only reads 1D codes roughly aligned with the image rows.
+  if (options.processing?.nativeDetector === 'off') return Promise.resolve(undefined);
   return NativeDetector.create(engineOptions.formats);
 }
 
