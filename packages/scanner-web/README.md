@@ -155,7 +155,9 @@ overlay (ROI mask, highlights, torch / camera buttons) · beep · vibration
   `upc_a` (Safari). It is dropped for the engine alone if it ever fails.
   Detection is by feature, not by browser: any browser that ships the API
   gets it, but a JavaScript polyfill of `BarcodeDetector` is ignored (it
-  would only be a slower engine on the main thread). Safari, Firefox and
+  would only be a slower engine on the main thread). Safari only exposes it
+  behind its experimental "Shape Detection API" flag, where it currently
+  reads nothing: leave the flag off, or set `nativeDetector: 'off'`. Firefox and
   Chrome on Windows / Linux do not have it today: nothing changes there.
 
 ## Browser support

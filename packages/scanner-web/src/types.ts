@@ -120,7 +120,7 @@ export interface ProcessingOptions {
   backend?: 'auto' | 'webgl' | 'canvas';
   /**
    * Use the browser's native `BarcodeDetector` (Chrome on Android, macOS and
-   * ChromeOS; Safari when its Shape Detection API is enabled): it reads codes
+   * ChromeOS): it reads codes
    * whatever their orientation, and the engine's workers stay idle. Codes get
    * the same confirmation and de-duplication.
    *
