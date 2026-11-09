@@ -58,7 +58,7 @@ function fakeCamera(name, image, size, { invert = false, photo = false } = {}) {
  * Play Services. Calls are counted in `window.__nativeCalls`, frames sent to
  * the engine's workers in `window.__engineFrames`.
  */
-function installFakeDetector({ mode, code }) {
+function installFakeDetector({ mode, code, without = [] }) {
   window.__nativeCalls = 0;
   window.__engineFrames = 0;
   const post = Worker.prototype.postMessage;
@@ -68,13 +68,10 @@ function installFakeDetector({ mode, code }) {
   };
   const Fake = class {
     static async getSupportedFormats() {
-      return ['aztec', 'code_128', 'code_39', 'code_93', 'codabar', 'data_matrix', 'ean_13', 'ean_8'].concat([
-        'itf',
-        'pdf417',
-        'qr_code',
-        'upc_a',
-        'upc_e',
-      ]);
+      // `without`: formats this fake native decoder lacks (like Safari's).
+      return ['aztec', 'code_128', 'code_39', 'code_93', 'codabar', 'data_matrix', 'ean_13', 'ean_8']
+        .filter((f) => !without.includes(f))
+        .concat(['itf', 'pdf417', 'qr_code', 'upc_a', 'upc_e']);
     }
     async detect(video) {
       window.__nativeCalls++;
@@ -197,6 +194,20 @@ const scenarios = [
     expect: null,
     timeoutMs: 3000,
     maxEngineFrames: 0,
+    native: true,
+    options: {},
+  },
+  // …unless the native decoder lacks formats of the default list (Safari):
+  // it is still used, and the engine fallback is turned on for those (here
+  // Code 39, which only the engine can read on this label)…
+  {
+    name: 'native-partial-auto-fallback',
+    image: 'real/feed_label_code39.jpg',
+    size: 540,
+    photo: true,
+    fake: { mode: 'miss', without: ['code_39'] },
+    expect: '025925',
+    minNativeCalls: 1,
     native: true,
     options: {},
   },

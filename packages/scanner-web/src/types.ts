@@ -120,8 +120,10 @@ export interface ProcessingOptions {
   backend?: 'auto' | 'webgl' | 'canvas';
   /**
    * Use the browser's native `BarcodeDetector` (Chrome on Android, macOS and
-   * ChromeOS) as the fast pass, when it supports every requested format
-   * (`micro_qr` excepted). The engine's fallback strategies keep running on
+   * ChromeOS; Safari when its Shape Detection API is enabled) as the fast
+   * pass. With an explicit `formats` list it must support every format
+   * (`micro_qr` excepted); with the default list it reads the formats it
+   * has and the engine fallback is turned on for the others. The engine's fallback strategies keep running on
    * the frames it finds nothing in: hard codes (laser engraving, shadows…)
    * are still read. Codes get the same confirmation and de-duplication.
    * It reads codes whatever their orientation. Elsewhere (Safari, Firefox,
@@ -135,7 +137,8 @@ export interface ProcessingOptions {
    * safety net for codes the native decoder may miss (laser engraving,
    * shadows, light-on-dark codes, `micro_qr`). Costs a little CPU and
    * battery. Without it, `micro_qr` listed in `formats` keeps the engine
-   * instead of the native detector. Default: `false`.
+   * instead of the native detector. Default: `false`, but always on when
+   * the native decoder lacks formats of the default list.
    */
   engineFallback?: boolean;
 }

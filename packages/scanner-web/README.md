@@ -147,9 +147,11 @@ overlay (ROI mask, highlights, torch / camera buttons) · beep · vibration
   strategies (laser engraving, shadows, light-on-dark codes…), a safety net
   that costs a little CPU and battery. Off by default. Its codes get the
   same multi-frame confirmation and de-duplication. It is used only when it
-  supports every requested format (`micro_qr`, which it lacks, is read by
-  the fallback; without it, listing `micro_qr` in `formats` keeps the
-  engine), and dropped for the engine alone if it ever fails.
+  supports every format of an explicit `formats` list (`micro_qr`, which it
+  lacks, is read by the fallback; without it, listing `micro_qr` keeps the
+  engine). With the default list it reads the formats it has, and the
+  engine fallback is turned on for the others (Safari's decoder does not
+  offer the same formats as Chrome's). It is dropped for the engine alone if it ever fails.
   Detection is by feature, not by browser: any browser that ships the API
   gets it, but a JavaScript polyfill of `BarcodeDetector` is ignored (it
   would only be a slower engine on the main thread). Safari, Firefox and
