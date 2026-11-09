@@ -51,7 +51,7 @@ await reader.destroy();  // removes the preview, frees the engine
 | `camera` | `{ facingMode: 'environment', resolution: 'hd' }` | Also `deviceId`, `rememberDevice` (default `true`), `releaseWhenHidden` (default `true`: the camera is released while the page is hidden and reopened when it is visible again). |
 | `overlay` | all on | `showRegion`, `showDetections`, `showTorchButton`, `showCameraSwitch`, `color`, or `false`. |
 | `feedback` | beep + vibrate | `{ beep, vibrate }` or `false`. |
-| `processing` | `{ maxDimension: 1024, backend: 'auto', nativeDetector: 'auto' }` | Decoder image size; `'webgl'`, `'canvas'` or `'auto'`; `nativeDetector: 'auto'` uses the browser's `BarcodeDetector` as the fast pass where it exists, `'off'` always uses the engine alone (see [How it works](#how-it-works)). |
+| `processing` | `{ maxDimension: 1024, backend: 'auto', nativeDetector: 'auto' }` | Decoder image size; `'webgl'`, `'canvas'` or `'auto'`; `nativeDetector: 'auto'` uses the browser's `BarcodeDetector` where it exists, `'off'` always uses the engine alone; `engineFallback: true` (default `false`) adds the engine's fallbacks as a safety net behind it (see [How it works](#how-it-works)). |
 | `worker` | `true` | Decode in Web Workers; falls back to the main thread if unavailable. |
 | `workers` | cores − 1 (1–3) | Number of decoding workers: frames are decoded in parallel. |
 | `wasmUrl`, `workerUrl` | auto | Override asset URLs (CDN, custom bundler setup). |
@@ -64,7 +64,7 @@ await reader.destroy();  // removes the preview, frees the engine
 - `setRegionOfInterest(region)`
 - `setTorch(on)`, `torchAvailable`, `setZoom(zoom)`, `switchCamera(deviceId?)`, `BarcodeReader.listCameras()`
 - `clearCooldown(text)` — allow a code to be reported again immediately
-- `stats` — `{ fps, decodeMs, grabMs, frameWidth, frameHeight, backend, worker, workers, native, nativeMs }`
+- `stats` — `{ fps, decodeMs, grabMs, frameWidth, frameHeight, backend, worker, workers, native, nativeMs, engineFps }`
 - `video` — the underlying `<video>` element
 
 Detection points are in video pixels (`video.videoWidth` space).
@@ -141,13 +141,15 @@ overlay (ROI mask, highlights, torch / camera buttons) · beep · vibration
 - The engine is downloaded and compiled once, then shared by every worker.
 - By default (`processing.nativeDetector: 'auto'`), browsers that ship a native
   `BarcodeDetector` (Chrome on Android, macOS and ChromeOS) search each video
-  frame with it, straight from the `<video>`: no grab, no worker. While it
-  finds nothing, the workers still decode a frame from time to time (~3 per
-  second) with the fallback strategies, which read the hard codes (laser
-  engraving, shadows…) the native decoder has no preprocessing for. Its codes get the
+  frame with it, straight from the `<video>`: no grab, no worker. With
+  `processing.engineFallback: true`, while it finds nothing, the workers
+  also decode a frame from time to time (~3 per second) with the fallback
+  strategies (laser engraving, shadows, light-on-dark codes…), a safety net
+  that costs a little CPU and battery. Off by default. Its codes get the
   same multi-frame confirmation and de-duplication. It is used only when it
-  supports every requested format (`micro_qr`, which it lacks, is then read
-  by the fallbacks), and dropped for the engine alone if it ever fails.
+  supports every requested format (`micro_qr`, which it lacks, is read by
+  the fallback; without it, listing `micro_qr` in `formats` keeps the
+  engine), and dropped for the engine alone if it ever fails.
   Detection is by feature, not by browser: any browser that ships the API
   gets it, but a JavaScript polyfill of `BarcodeDetector` is ignored (it
   would only be a slower engine on the main thread). Safari, Firefox and

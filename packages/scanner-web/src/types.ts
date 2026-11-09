@@ -129,6 +129,15 @@ export interface ProcessingOptions {
    * `'off'`: always the engine alone. Default: `'auto'`.
    */
   nativeDetector?: 'auto' | 'off';
+  /**
+   * With the native detector: while it finds nothing, also hand a frame to
+   * the engine's fallback strategies from time to time (~3 per second), a
+   * safety net for codes the native decoder may miss (laser engraving,
+   * shadows, light-on-dark codes, `micro_qr`). Costs a little CPU and
+   * battery. Without it, `micro_qr` listed in `formats` keeps the engine
+   * instead of the native detector. Default: `false`.
+   */
+  engineFallback?: boolean;
 }
 
 export interface ReaderOptions extends EngineOptions, AssetOptions {
@@ -150,9 +159,9 @@ export interface ReaderOptions extends EngineOptions, AssetOptions {
 export interface ReaderStats {
   /** Frames decoded per second. */
   fps: number;
-  /** Average decode time in the engine, in ms. */
+  /** Average decode time in the engine, in ms (`0` when it decoded nothing in the last second). */
   decodeMs: number;
-  /** Average GPU/canvas frame preparation time, in ms. */
+  /** Average GPU/canvas frame preparation time, in ms (`0` when nothing was grabbed in the last second). */
   grabMs: number;
   /** Size of the image handed to the decoder. */
   frameWidth: number;
@@ -167,6 +176,11 @@ export interface ReaderStats {
   native: boolean;
   /** Average native detection time, in ms (`0` when not used). */
   nativeMs: number;
+  /**
+   * Frames decoded by the engine per second. With the native detector: `0`
+   * while it reads everything, a few per second with `engineFallback`.
+   */
+  engineFps: number;
 }
 
 export interface ReaderEvents {

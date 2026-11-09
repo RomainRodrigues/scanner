@@ -2,9 +2,13 @@
 // Reusable wrapper around the SDK's BarcodeReader: copy it into your own app.
 import type { BarcodeFormat, BarcodeReader, Detection, ReaderStats } from '@gueshbzh-perso/scanner';
 
-// `nativeDetector` is read once, when the reader is created: remount the
-// component (`:key`) to change it.
-const props = defineProps<{ formats?: BarcodeFormat[]; nativeDetector?: boolean }>();
+// `nativeDetector` and `engineFallback` are read once, when the reader is
+// created: remount the component (`:key`) to change them.
+const props = defineProps<{
+  formats?: BarcodeFormat[];
+  nativeDetector?: boolean;
+  engineFallback?: boolean;
+}>();
 const emit = defineEmits<{
   detected: [codes: Detection[]];
   error: [error: Error];
@@ -31,7 +35,10 @@ async function createReader(): Promise<BarcodeReader> {
   const created = await BarcodeReader.create({
     host: host.value,
     formats: props.formats,
-    processing: { nativeDetector: props.nativeDetector ? 'auto' : 'off' },
+    processing: {
+      nativeDetector: props.nativeDetector ? 'auto' : 'off',
+      engineFallback: props.engineFallback,
+    },
   });
   created.on('detected', (codes) => emit('detected', codes));
   created.on('error', (err) => emit('error', err));

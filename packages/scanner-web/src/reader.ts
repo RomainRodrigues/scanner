@@ -20,7 +20,7 @@ import type { Detection, EngineOptions, ReaderEvents, ReaderOptions, ReaderStats
 const DEFAULT_REGION: Region = { x: 0.1, y: 0.2, width: 0.8, height: 0.6 };
 
 /**
- * With the native detector, delay between two engine frames while the
+ * With the native detector and `processing.engineFallback`, delay between two engine frames while the
  * native decoder finds nothing (~3 fallbacks per second). A code that only
  * the fallbacks read is still found within a couple of seconds (the
  * strategies share CPU time, the cheap Linear one runs most often), while
@@ -103,7 +103,18 @@ export class BarcodeReader {
   private torchOn = false;
   private buffers: ArrayBuffer[] = [];
   private frameHandle = 0;
-  private perf = { frames: 0, since: 0, fps: 0, decodeMs: 0, grabMs: 0, nativeMs: 0, w: 0, h: 0 };
+  private perf = {
+    frames: 0,
+    engineFrames: 0,
+    since: 0,
+    fps: 0,
+    engineFps: 0,
+    decodeMs: 0,
+    grabMs: 0,
+    nativeMs: 0,
+    w: 0,
+    h: 0,
+  };
 
   private constructor(
     private engine: Engine,
@@ -166,6 +177,7 @@ export class BarcodeReader {
       workers: this.engine.concurrency,
       native: this.native !== undefined,
       nativeMs: this.perf.nativeMs,
+      engineFps: this.perf.engineFps,
     };
   }
 
@@ -407,10 +419,13 @@ export class BarcodeReader {
    * Grab stage. With the native `BarcodeDetector`, the frame is searched
    * natively first, straight from the `<video>` (Chrome reads it outside the
    * page's threads): no grab of our own. Codes it finds are committed right
-   * away. When it finds nothing, the engine gets a frame **from time to
-   * time** (`FALLBACK_INTERVAL_MS`), without its fast path, for one fallback
-   * strategy: the safety net for what the native decoder has no
-   * preprocessing for (laser engraving, light-on-dark codes, `micro_qr`…).
+   * away. When it finds nothing and `processing.engineFallback` is on, the
+   * engine gets a frame **from time to time** (`FALLBACK_INTERVAL_MS`),
+   * without its fast path, for one fallback strategy: a safety net for what
+   * the native decoder has no preprocessing for (laser engraving,
+   * light-on-dark codes, `micro_qr`…). Off by default (choice of the project
+   * after testing on a Galaxy A14, where the native decoder read codes very
+   * well): the net mostly costs CPU and battery.
    * Grabbing and decoding every frame as well would double the reads of the
    * frame and keep the workers busy on frames the native decoder handles,
    * costing battery and CPU it also needs.
@@ -436,7 +451,7 @@ export class BarcodeReader {
     // Replaced by `configure()` meanwhile: results made for the old formats.
     if (generation !== this.nativeGeneration || !this.running || this.paused) return;
 
-    if (codes.length === 0 && this.fallbackDue()) {
+    if (codes.length === 0 && this.options.processing?.engineFallback === true && this.fallbackDue()) {
       this.fallbackInFlight = true;
       this.updatePerf({ nativeMs, counted: false });
       try {
@@ -625,12 +640,23 @@ export class BarcodeReader {
       p.w = s.grab.width;
       p.h = s.grab.height;
     }
-    if (s.decodeMs !== undefined) p.decodeMs = ema(p.decodeMs, s.decodeMs);
+    if (s.decodeMs !== undefined) {
+      p.decodeMs = ema(p.decodeMs, s.decodeMs);
+      p.engineFrames++;
+    }
     if (s.nativeMs !== undefined) p.nativeMs = ema(p.nativeMs, s.nativeMs);
     const now = performance.now();
     if (now - p.since >= 1000) {
       p.fps = (p.frames * 1000) / (now - p.since);
+      p.engineFps = (p.engineFrames * 1000) / (now - p.since);
+      // With the native detector the engine may decode nothing for long
+      // stretches: its averages would show stale values, as if it were busy.
+      if (p.engineFrames === 0) {
+        p.decodeMs = 0;
+        p.grabMs = 0;
+      }
       p.frames = 0;
+      p.engineFrames = 0;
       p.since = now;
     }
   }
@@ -686,7 +712,7 @@ function createNative(
   // well whatever the orientation of the phone, where the engine's fast pass
   // only reads 1D codes roughly aligned with the image rows.
   if (options.processing?.nativeDetector === 'off') return Promise.resolve(undefined);
-  return NativeDetector.create(engineOptions.formats);
+  return NativeDetector.create(engineOptions.formats, undefined, options.processing?.engineFallback === true);
 }
 
 function waitForVideo(video: HTMLVideoElement): Promise<void> {
