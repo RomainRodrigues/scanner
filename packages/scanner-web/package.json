@@ -1,6 +1,6 @@
 {
   "name": "@gueshbzh-perso/scanner",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "Fast QR code & barcode scanning for the web: camera, WebGL frame pipeline, Web Worker and Rust/WebAssembly decoder.",
   "type": "module",
   "license": "MIT",
