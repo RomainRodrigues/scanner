@@ -4,35 +4,29 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Called by the Release workflow on the release-please branch, whose commits
-  # (pushed with GITHUB_TOKEN) do not trigger this workflow by themselves.
-  workflow_call:
-    inputs:
-      ref:
-        description: Commit (or branch) to test.
-        type: string
-        required: true
+  # Dispatched by the Release workflow on the release-please branch, whose
+  # commits (pushed with GITHUB_TOKEN) trigger no `push` / `pull_request` run.
+  # Running on that branch itself (not called from main with another ref to
+  # check out) keeps its caches away from main's: CodeQL flagged the former
+  # `workflow_call` + `ref` input as cache poisoning. Its checks then show up
+  # on the release PR like on any other PR.
+  workflow_dispatch:
 
 concurrency:
-  # `inputs.ref` keeps a called run (release branch) out of the group of the
-  # push run on main that called it, which it would otherwise cancel.
-  group: ci-${{ inputs.ref || github.ref }}
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  # The job names are also reported on release PRs by release.yml
-  # (`release-pr-status`) and required by the `main` ruleset: rename them
-  # in all three places.
+  # The job names are required checks of the `main` ruleset: rename them
+  # there too.
   rust:
     name: Rust — fmt, clippy, tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-toolchain
         with:
           node: 'false'
@@ -58,8 +52,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.ref }}
       - uses: ./.github/actions/setup-toolchain
       - run: npm run lint
       - run: npm run build

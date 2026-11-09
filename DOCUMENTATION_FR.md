@@ -201,8 +201,8 @@ codes abîmés, angles) pour un benchmark réaliste.
 - **CI** (`.github/workflows/ci.yml`, à chaque push sur `main` et chaque pull request) :
   fmt / clippy / tests / doc / `cargo audit` Rust, tests WASM dans Node.js, ESLint +
   Prettier, build du SDK, vérification des types, tests unitaires, tests e2e avec fausse
-  caméra, build de la démo. Aussi appelée par le workflow *Release* sur la PR de release,
-  dont le résultat est reporté sur la PR (mêmes noms de checks).
+  caméra, build de la démo. Aussi lancée par le workflow *Release* sur la branche de la
+  PR de release (ses checks s'affichent sur la PR).
 - **Sécurité** : actions épinglées par SHA de commit (Dependabot les met à jour),
   permissions accordées job par job, et le job qui publie sur npm n'installe ni
   n'exécute rien venant de npm (il publie l'archive construite par un autre job).
@@ -240,7 +240,7 @@ commit (Conventional Commits) :
    `feat:` → minor ; avant la 1.0, un changement cassant `feat!:` passe aussi en minor),
    met à jour `Cargo.toml`, `packages/scanner-web/package.json`, `CHANGELOG.md` et les
    lockfiles.
-2. Tu relis la PR et sa CI (lancée par le workflow *Release*, résultat reporté sur la PR),
+2. Tu relis la PR et sa CI (lancée sur sa branche par le workflow *Release*),
    puis tu la fusionnes quand tu veux publier → tag `v0.5.0`, release GitHub, et
    publication du SDK sur npm, **avec provenance** (le dépôt est public : chaque version
    est reliée au commit et au workflow qui l'ont produite).
